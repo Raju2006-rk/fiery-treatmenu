@@ -1,0 +1,6 @@
+{
+  "name": "FIREY TREAT Restaurant",
+  "description": "Official mobile-first website and live digital menu for Firey Treat Restaurant - Basmati Rice & Noodles, Crispy Fried Chicken, Thunder Wings, Rolls, Burgers, Sandwiches, Momos & Biryani.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
