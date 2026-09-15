@@ -12,7 +12,7 @@ import imgSplVegBurger from '../assets/images/regenerated_image_1789390425075.jp
 import imgCrispyChickenBurger from '../assets/images/regenerated_image_1789390431304.jpg';
 import imgTandoorBurger from '../assets/images/tandoori_burger_1789392468702.jpg';
 import imgChickenMomos from '../assets/images/regenerated_image_1789390818101.jpg';
-import imgCrispyFriedChicken from '../assets/images/crispy_fried_chicken_1789393849879.jpg';
+import imgCrispyFriedChicken from '../assets/images/crispy_fried_chicken_toi.jpg';
 
 export const CATEGORIES: CategoryMeta[] = [
   {
@@ -121,6 +121,8 @@ const RECIPE_URL_TO_IMAGE_MAP: Record<string, string> = {
   'https://www.yummytummyaarthi.com/dragon-chicken-recipe-restaurant-style':
     'https://www.yummytummyaarthi.com/wp-content/uploads/2021/11/dragon-chicken-1.jpeg',
   'https://recipes.timesofindia.com/recipes/fried-chicken/rs61589069.cms':
+    imgCrispyFriedChicken,
+  'https://recipes.timesofindia.com/recipes/fried-chicken/rs61589069.cms/':
     imgCrispyFriedChicken,
   'https://www.foodnetwork.com/recipes/patrick-and-gina-neely/pats-spicy-fried-wings-recipe0-1937798':
     'https://images.unsplash.com/photo-1608039829572-78524f79c4c7?auto=format&fit=crop&w=800&q=80',

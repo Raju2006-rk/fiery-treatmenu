@@ -6,7 +6,8 @@ import {
   Settings, 
   Menu as MenuIcon, 
   X,
-  MessageCircle
+  MessageCircle,
+  Lock
 } from 'lucide-react';
 import { RESTAURANT_INFO } from '../data/menuData';
 
@@ -116,15 +117,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>WhatsApp</span>
             </a>
 
-            {/* Admin CMS Button */}
+            {/* Admin CMS Button (Owner Protected) */}
             <button
               id="btn-open-admin-modal"
               onClick={onOpenAdmin}
-              className="p-2 text-neutral-400 hover:text-amber-400 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-lg transition-colors"
-              title="Staff Menu Management (Admin)"
-              aria-label="Staff Menu Management"
+              className="relative p-2 text-neutral-400 hover:text-amber-400 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-lg transition-colors cursor-pointer group"
+              title="Owner Settings (Password Protected: 8143)"
+              aria-label="Owner Settings (Password Protected)"
             >
-              <Settings className="w-4 h-4" />
+              <Settings className="w-4 h-4 group-hover:rotate-45 transition-transform" />
+              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-500 text-neutral-950 rounded-full flex items-center justify-center shadow">
+                <Lock className="w-2 h-2" />
+              </span>
             </button>
 
             {/* Cart Button */}

@@ -8,6 +8,7 @@ import { CategoryNav } from './components/CategoryNav';
 import { MenuCard } from './components/MenuCard';
 import { CartDrawer } from './components/CartDrawer';
 import { AdminPanelModal } from './components/AdminPanelModal';
+import { OwnerAuthModal } from './components/OwnerAuthModal';
 import { LocationAndContact } from './components/LocationAndContact';
 import { Footer } from './components/Footer';
 import { 
@@ -22,12 +23,27 @@ import {
 } from 'lucide-react';
 
 const CART_STORAGE_KEY = 'firey_treat_cart_v2';
+const MENU_STORAGE_KEY = 'firey_treat_menu_items_v7';
 
 export default function App() {
-  // Always use INITIAL_MENU_ITEMS as the source of truth so any changes in menuData.ts reflect instantly
-  const [menuItems, setMenuItems] = useState<MenuItem[]>(INITIAL_MENU_ITEMS);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(MENU_STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed;
+          }
+        }
+      } catch (e) {
+        console.error('Error loading stored menu:', e);
+      }
+    }
+    return INITIAL_MENU_ITEMS;
+  });
 
-  // Clear legacy stored menu items on mount so stale caches never override menuData.ts
+  // Clear legacy stored menu items on mount so stale caches never override
   useEffect(() => {
     try {
       [
@@ -36,11 +52,21 @@ export default function App() {
         'firey_treat_menu_items_v3',
         'firey_treat_menu_items_v4',
         'firey_treat_menu_items_v5',
+        'firey_treat_menu_items_v6',
       ].forEach((k) => localStorage.removeItem(k));
     } catch {
       // ignore
     }
   }, []);
+
+  // Save menuItems to localStorage whenever edited, added, or deleted
+  useEffect(() => {
+    try {
+      localStorage.setItem(MENU_STORAGE_KEY, JSON.stringify(menuItems));
+    } catch (e) {
+      console.error('Error saving menu to storage:', e);
+    }
+  }, [menuItems]);
 
   // Cart state with local persistence
   const [cart, setCart] = useState<CartItem[]>(() => {
@@ -79,7 +105,12 @@ export default function App() {
 
   // Modals state
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isOwnerAuthOpen, setIsOwnerAuthOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
+
+  const handleOpenOwnerSettings = () => {
+    setIsOwnerAuthOpen(true);
+  };
 
   // Table QR param detection (e.g. ?table=Table%203)
   const [dineInTable, setDineInTable] = useState<string | null>(null);
@@ -177,9 +208,20 @@ export default function App() {
     setMenuItems((prev) => [newItem, ...prev]);
   };
 
+  const handleDeleteMenuItem = (itemId: string) => {
+    setMenuItems((prev) => prev.filter((item) => item.id !== itemId));
+    // Also remove from active cart if it was added
+    setCart((prev) => prev.filter((item) => item.menuItem.id !== itemId));
+  };
+
   const handleResetMenu = () => {
-    if (window.confirm('Reset all prices and items to original photographed menu board?')) {
+    if (window.confirm('Reset all prices, restore deleted dishes, and revert custom items to original menu board?')) {
       setMenuItems(INITIAL_MENU_ITEMS);
+      try {
+        localStorage.removeItem(MENU_STORAGE_KEY);
+      } catch {
+        // ignore
+      }
     }
   };
 
@@ -228,7 +270,7 @@ export default function App() {
         cartCount={cartCount}
         cartTotal={cartTotal}
         onOpenCart={() => setIsCartOpen(true)}
-        onOpenAdmin={() => setIsAdminOpen(true)}
+        onOpenAdmin={handleOpenOwnerSettings}
         activeCategory={selectedCategory}
       />
 
@@ -373,7 +415,7 @@ export default function App() {
 
       {/* Footer */}
       <Footer
-        onOpenAdmin={() => setIsAdminOpen(true)}
+        onOpenAdmin={handleOpenOwnerSettings}
       />
 
       {/* Floating Mobile Cart & WhatsApp Action Button */}
@@ -418,12 +460,19 @@ export default function App() {
         onClearCart={handleClearCart}
       />
 
+      <OwnerAuthModal
+        isOpen={isOwnerAuthOpen}
+        onClose={() => setIsOwnerAuthOpen(false)}
+        onSuccess={() => setIsAdminOpen(true)}
+      />
+
       <AdminPanelModal
         isOpen={isAdminOpen}
         onClose={() => setIsAdminOpen(false)}
         items={menuItems}
         onUpdateItem={handleUpdateMenuItem}
         onAddItem={handleAddMenuItem}
+        onDeleteItem={handleDeleteMenuItem}
         onResetMenu={handleResetMenu}
       />
 

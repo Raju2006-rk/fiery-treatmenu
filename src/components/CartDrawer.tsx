@@ -48,9 +48,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     0
   );
 
-  const packingCharge = orderType === 'dine_in' ? 0 : cart.length > 0 ? 15 : 0;
   const deliveryFee = orderType === 'delivery' ? (subtotal > 499 ? 0 : 30) : 0;
-  const grandTotal = subtotal + packingCharge + deliveryFee;
+  const grandTotal = subtotal + deliveryFee;
 
   const handleNoteChange = (itemId: string, note: string) => {
     setItemNotes((prev) => ({ ...prev, [itemId]: note }));
@@ -88,7 +87,6 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
     msg += `--------------------------------\n`;
     msg += `*Subtotal:* ₹${subtotal}\n`;
-    if (packingCharge > 0) msg += `*Packing Charge:* ₹${packingCharge}\n`;
     if (deliveryFee > 0) msg += `*Delivery Fee:* ₹${deliveryFee}\n`;
     if (orderType === 'delivery' && subtotal > 499) {
       msg += `*Delivery:* FREE (Orders above ₹499)\n`;
@@ -363,12 +361,6 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     <span>Items Subtotal</span>
                     <span className="font-semibold">₹{subtotal}</span>
                   </div>
-                  {packingCharge > 0 && (
-                    <div className="flex justify-between text-neutral-400">
-                      <span>Packaging & Containers</span>
-                      <span>₹{packingCharge}</span>
-                    </div>
-                  )}
                   {orderType === 'delivery' && (
                     <div className="flex justify-between text-neutral-400">
                       <span>Delivery Fee</span>

@@ -12,6 +12,7 @@ import {
   Truck
 } from 'lucide-react';
 import { RESTAURANT_INFO } from '../data/menuData';
+import imgCrispyFriedChicken from '../assets/images/crispy_fried_chicken_toi.jpg';
 
 interface HeroProps {
   onExploreMenu: () => void;
@@ -131,7 +132,7 @@ export const Hero: React.FC<HeroProps> = ({ onExploreMenu }) => {
               {/* Featured dish image banner */}
               <div className="relative h-56 sm:h-64 rounded-xl overflow-hidden mb-4 group">
                 <img
-                  src="https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?auto=format&fit=crop&w=800&q=80"
+                  src={imgCrispyFriedChicken}
                   alt="Crispy Fried Chicken and Chicken Lollipop"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   referrerPolicy="no-referrer"

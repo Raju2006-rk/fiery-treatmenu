@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { MenuItem, CategoryId } from '../types';
-import { CATEGORIES } from '../data/menuData';
+import { CATEGORIES, resolveImageUrl } from '../data/menuData';
 import { DietaryIndicator } from './DietaryIndicator';
 import { 
   X, 
@@ -13,7 +13,11 @@ import {
   Upload, 
   Flame, 
   AlertCircle,
-  Save
+  Save,
+  Image as ImageIcon,
+  Trash2,
+  Camera,
+  UploadCloud
 } from 'lucide-react';
 
 interface AdminPanelModalProps {
@@ -22,6 +26,7 @@ interface AdminPanelModalProps {
   items: MenuItem[];
   onUpdateItem: (updatedItem: MenuItem) => void;
   onAddItem: (newItem: MenuItem) => void;
+  onDeleteItem: (itemId: string) => void;
   onResetMenu: () => void;
 }
 
@@ -31,6 +36,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   items,
   onUpdateItem,
   onAddItem,
+  onDeleteItem,
   onResetMenu,
 }) => {
   const [search, setSearch] = useState('');
@@ -38,6 +44,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [tempPrice, setTempPrice] = useState<number>(0);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletedNotification, setDeletedNotification] = useState<string>('');
 
   // New Dish Form State
   const [newName, setNewName] = useState('');
@@ -46,8 +54,45 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [newIsVeg, setNewIsVeg] = useState(true);
   const [newDescription, setNewDescription] = useState('');
   const [newSpiceLevel, setNewSpiceLevel] = useState<1 | 2 | 3>(2);
+  const [newImage, setNewImage] = useState<string>('');
+  const [imageInputMode, setImageInputMode] = useState<'upload' | 'url'>('upload');
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Edit Dish Image State for existing items
+  const [editingImageItem, setEditingImageItem] = useState<MenuItem | null>(null);
+  const [editImageUrl, setEditImageUrl] = useState('');
+  const editFileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
+
+  const handleImageFile = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setUploadError('Please select a valid image file (PNG, JPG, WEBP, etc.)');
+      return;
+    }
+    setUploadError('');
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      if (e.target?.result) {
+        setNewImage(e.target.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleEditItemImageFile = (file: File, targetItem: MenuItem) => {
+    if (!file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      if (e.target?.result) {
+        onUpdateItem({ ...targetItem, image: e.target.result as string });
+        setEditingImageItem(null);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const filteredItems = items.filter((item) => {
     const matchCat = selectedCat === 'all' || item.category === selectedCat;
@@ -83,6 +128,12 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     e.preventDefault();
     if (!newName.trim() || newPrice <= 0) return;
 
+    const finalImage = newImage.trim()
+      ? resolveImageUrl(newImage.trim())
+      : (newIsVeg
+        ? 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?auto=format&fit=crop&w=800&q=80'
+        : 'https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?auto=format&fit=crop&w=800&q=80');
+
     const newItem: MenuItem = {
       id: `custom-${Date.now()}`,
       name: newName.trim(),
@@ -92,15 +143,15 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       spiceLevel: newSpiceLevel,
       description: newDescription.trim() || `${newName} freshly prepared at Firey Treat.`,
       inStock: true,
-      image: newIsVeg
-        ? 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?auto=format&fit=crop&w=800&q=80'
-        : 'https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?auto=format&fit=crop&w=800&q=80',
+      image: finalImage,
       tags: ['Chef Special', 'New Item'],
     };
 
     onAddItem(newItem);
     setNewName('');
     setNewDescription('');
+    setNewImage('');
+    setUploadError('');
     setShowAddForm(false);
   };
 
@@ -170,7 +221,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search items by name to change price..."
+              placeholder="Search items by name to change price or delete..."
               className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-amber-500"
             />
           </div>
@@ -196,6 +247,23 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             <span>{showAddForm ? 'Close Form' : 'Add New Dish'}</span>
           </button>
         </div>
+
+        {/* Delete Toast Notification */}
+        {deletedNotification && (
+          <div className="px-4 py-2.5 rounded-xl bg-rose-950/80 border border-rose-800/80 text-rose-200 text-xs flex items-center justify-between animate-in fade-in duration-200 shrink-0">
+            <div className="flex items-center gap-2">
+              <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />
+              <span className="font-semibold">{deletedNotification}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDeletedNotification('')}
+              className="p-1 text-neutral-400 hover:text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* Add New Dish Form Drawer */}
         {showAddForm && (
@@ -249,33 +317,195 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-              <div className="sm:col-span-2">
-                <label className="text-neutral-400 block mb-1">Description</label>
-                <input
-                  type="text"
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  placeholder="Short appetizing description..."
-                  className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-1.5 text-white"
-                />
+            <div className="text-xs">
+              <label className="text-neutral-400 block mb-1">Description</label>
+              <input
+                type="text"
+                value={newDescription}
+                onChange={(e) => setNewDescription(e.target.value)}
+                placeholder="Short appetizing description..."
+                className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-1.5 text-white"
+              />
+            </div>
+
+            {/* Dish Image Upload Section */}
+            <div className="p-3 bg-neutral-900/60 rounded-xl border border-neutral-800 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="text-neutral-300 text-xs font-semibold flex items-center gap-1.5">
+                  <ImageIcon className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Dish Image</span>
+                  <span className="text-[10px] text-neutral-500 font-normal">(Upload photo or provide web link)</span>
+                </label>
+
+                <div className="inline-flex rounded-lg bg-neutral-900 p-0.5 border border-neutral-800 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setImageInputMode('upload')}
+                    className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
+                      imageInputMode === 'upload'
+                        ? 'bg-amber-500 text-neutral-950 font-bold shadow-sm'
+                        : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    Upload File
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImageInputMode('url')}
+                    className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
+                      imageInputMode === 'url'
+                        ? 'bg-amber-500 text-neutral-950 font-bold shadow-sm'
+                        : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    Image Link
+                  </button>
+                </div>
               </div>
 
-              <div className="flex items-center gap-4 pt-4">
-                <label className="flex items-center gap-2 cursor-pointer">
+              {imageInputMode === 'upload' ? (
+                <div>
                   <input
-                    type="checkbox"
-                    checked={newIsVeg}
-                    onChange={(e) => setNewIsVeg(e.target.checked)}
-                    className="rounded border-neutral-700 text-emerald-500 focus:ring-emerald-500"
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        handleImageFile(e.target.files[0]);
+                      }
+                    }}
+                    className="hidden"
                   />
-                  <span>Pure Vegetarian</span>
-                </label>
+
+                  {newImage ? (
+                    <div className="flex items-center gap-3 p-2 bg-neutral-900 rounded-xl border border-neutral-800">
+                      <img
+                        src={newImage}
+                        alt="Uploaded Preview"
+                        className="w-16 h-16 rounded-lg object-cover border border-amber-500/40 shrink-0"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-emerald-400 flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Image uploaded successfully</span>
+                        </p>
+                        <p className="text-[11px] text-neutral-400 truncate">
+                          Ready for restaurant menu display
+                        </p>
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold cursor-pointer transition-colors"
+                          >
+                            Change Photo
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setNewImage('')}
+                            className="px-2.5 py-1 rounded bg-rose-950/60 hover:bg-rose-900/60 text-rose-300 text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Remove</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setIsDragging(true);
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault();
+                        setIsDragging(false);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setIsDragging(false);
+                        if (e.dataTransfer.files?.[0]) {
+                          handleImageFile(e.dataTransfer.files[0]);
+                        }
+                      }}
+                      onClick={() => fileInputRef.current?.click()}
+                      className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${
+                        isDragging
+                          ? 'border-amber-400 bg-amber-500/10 text-amber-300'
+                          : 'border-neutral-700 hover:border-amber-500/60 bg-neutral-900/50 hover:bg-neutral-900 text-neutral-400'
+                      }`}
+                    >
+                      <UploadCloud className="w-7 h-7 mx-auto mb-1 text-amber-400 animate-pulse" />
+                      <p className="text-xs font-semibold text-neutral-200">
+                        Click to browse dish photo, or drag & drop here
+                      </p>
+                      <p className="text-[10px] text-neutral-500 mt-0.5">
+                        Supports PNG, JPG, JPEG, WEBP files
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={newImage}
+                    onChange={(e) => setNewImage(e.target.value)}
+                    placeholder="https://example.com/dish.jpg or recipe link..."
+                    className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-amber-500"
+                  />
+                  {newImage && (
+                    <div className="flex items-center gap-2 p-2 bg-neutral-900 rounded-lg border border-neutral-800">
+                      <img
+                        src={resolveImageUrl(newImage)}
+                        alt="URL Preview"
+                        className="w-12 h-12 rounded object-cover border border-neutral-700 shrink-0"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).src = newIsVeg
+                            ? 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?auto=format&fit=crop&w=800&q=80'
+                            : 'https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?auto=format&fit=crop&w=800&q=80';
+                        }}
+                      />
+                      <div className="text-[11px] text-neutral-400 min-w-0">
+                        <span className="font-semibold text-white block">Image URL detected</span>
+                        <span className="truncate block">{newImage}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {uploadError && (
+                <p className="text-xs text-rose-400 font-medium">{uploadError}</p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-neutral-800">
+              <label className="flex items-center gap-2 cursor-pointer text-xs">
+                <input
+                  type="checkbox"
+                  checked={newIsVeg}
+                  onChange={(e) => setNewIsVeg(e.target.checked)}
+                  className="rounded border-neutral-700 text-emerald-500 focus:ring-emerald-500"
+                />
+                <span className="text-neutral-300 font-medium">Pure Vegetarian Dish</span>
+              </label>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddForm(false)}
+                  className="px-3.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-xs transition-colors"
+                >
+                  Cancel
+                </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
+                  className="px-5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-colors cursor-pointer flex items-center gap-1.5"
                 >
-                  Save Item
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Save Dish</span>
                 </button>
               </div>
             </div>
@@ -293,6 +523,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 <th className="p-3 text-center">In Stock</th>
                 <th className="p-3 text-center">Special</th>
                 <th className="p-3 text-center">Bestseller</th>
+                <th className="p-3 text-center text-rose-400">Delete</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-900">
@@ -303,9 +534,20 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                     key={item.id}
                     className="hover:bg-neutral-900/50 transition-colors"
                   >
-                    {/* Name & Type */}
+                    {/* Name & Type with Dish Photo Thumbnail */}
                     <td className="p-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <img
+                          src={resolveImageUrl(item.image)}
+                          alt={item.name}
+                          className="w-10 h-10 rounded-lg object-cover border border-neutral-800 shrink-0 bg-neutral-900"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src = item.isVeg
+                              ? 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?auto=format&fit=crop&w=800&q=80'
+                              : 'https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?auto=format&fit=crop&w=800&q=80';
+                          }}
+                        />
                         <DietaryIndicator isVeg={item.isVeg} isEgg={item.isEgg} size="sm" />
                         <div>
                           <span className="font-semibold text-white block">
@@ -397,6 +639,46 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                       >
                         ★ Top
                       </button>
+                    </td>
+
+                    {/* Delete Option for Owner */}
+                    <td className="p-3 text-center whitespace-nowrap">
+                      {confirmDeleteId === item.id ? (
+                        <div className="inline-flex items-center gap-1 bg-neutral-900 border border-rose-800/80 p-1 rounded-lg shadow-lg">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onDeleteItem(item.id);
+                              setConfirmDeleteId(null);
+                              setDeletedNotification(`Deleted "${item.name}" from the menu.`);
+                              setTimeout(() => setDeletedNotification(''), 3500);
+                            }}
+                            className="px-2 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] font-bold shadow transition-colors cursor-pointer flex items-center gap-1"
+                            title="Confirm permanent deletion"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Delete</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded text-[10px] font-medium transition-colors cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(item.id)}
+                          className="p-1.5 rounded-lg text-neutral-400 hover:text-rose-400 hover:bg-rose-950/40 border border-transparent hover:border-rose-900/50 transition-all cursor-pointer inline-flex items-center gap-1"
+                          title={`Delete "${item.name}" (Owner access)`}
+                          aria-label={`Delete ${item.name}`}
+                        >
+                          <Trash2 className="w-4 h-4 text-rose-500/80 hover:text-rose-400" />
+                          <span className="text-[10px] text-rose-400/90 font-medium hidden sm:inline">Delete</span>
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );

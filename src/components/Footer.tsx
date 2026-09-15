@@ -1,5 +1,5 @@
 import React from 'react';
-import { Flame, PhoneCall, MessageCircle, Heart, Settings, MapPin, Navigation } from 'lucide-react';
+import { Flame, PhoneCall, MessageCircle, Heart, Settings, MapPin, Navigation, Lock } from 'lucide-react';
 import { RESTAURANT_INFO } from '../data/menuData';
 
 interface FooterProps {
@@ -113,15 +113,21 @@ export const Footer: React.FC<FooterProps> = ({ onOpenAdmin }) => {
           {/* Tools & Staff CMS */}
           <div className="space-y-3 text-xs">
             <h4 className="font-bold text-sm text-white uppercase tracking-wider">
-              Staff Portal
+              Owner Portal
             </h4>
             <div className="flex flex-col gap-2">
               <button
                 onClick={onOpenAdmin}
-                className="flex items-center gap-2 p-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-200 transition-colors text-left"
+                className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-200 transition-colors text-left border border-neutral-800 cursor-pointer group"
+                title="Owner Settings (Password Protected: 8143)"
               >
-                <Settings className="w-4 h-4 text-amber-400" />
-                <span>Staff Menu Management CMS</span>
+                <div className="flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-amber-400 group-hover:rotate-45 transition-transform" />
+                  <span>Owner Settings & CMS</span>
+                </div>
+                <span className="p-1 rounded bg-amber-500/20 text-amber-400">
+                  <Lock className="w-3 h-3" />
+                </span>
               </button>
             </div>
           </div>
