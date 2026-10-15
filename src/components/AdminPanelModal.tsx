@@ -17,7 +17,10 @@ import {
   Image as ImageIcon,
   Trash2,
   Camera,
-  UploadCloud
+  UploadCloud,
+  Truck,
+  Navigation,
+  MapPin
 } from 'lucide-react';
 
 interface AdminPanelModalProps {
@@ -211,6 +214,38 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
               <X className="w-5 h-5" />
             </button>
           </div>
+        </div>
+
+        {/* Delivery Radius & WhatsApp Ordering Configuration Info for Owner */}
+        <div className="p-3 sm:p-3.5 rounded-2xl bg-neutral-950 border border-neutral-800 flex items-center justify-between flex-wrap gap-3 text-xs shrink-0">
+          <div className="flex items-center gap-2.5">
+            <span className="p-2 rounded-xl bg-emerald-950/80 border border-emerald-800/60 text-emerald-400 shrink-0">
+              <Truck className="w-4 h-4" />
+            </span>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-bold text-white text-sm">
+                  10 KM WhatsApp Delivery Radius Active
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 text-[10px] font-bold border border-emerald-800/80">
+                  Below 500m: Reduced Fee (FREE ₹0)
+                </span>
+              </div>
+              <p className="text-[11px] text-neutral-400 pt-0.5">
+                Central Hub: Pachikapalem, DCCB Bank opposite, Tirupati Road (Coordinates: 13.4478° N, 79.3611° E)
+              </p>
+            </div>
+          </div>
+
+          <a
+            href="https://maps.app.goo.gl/r8P7kyEs2Q5bEvXY7"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-3 py-1.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-amber-400 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+          >
+            <Navigation className="w-3.5 h-3.5" />
+            <span>Open Maps Link</span>
+          </a>
         </div>
 
         {/* Filter & Search Bar */}

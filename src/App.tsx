@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { MenuItem, CartItem, CategoryId } from './types';
+import { MenuItem, CartItem, CategoryId, OrderType } from './types';
 import { INITIAL_MENU_ITEMS, CATEGORIES, RESTAURANT_INFO } from './data/menuData';
+import { DetectedLocationResult } from './utils/distance';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
 import { BasmatiHighlight } from './components/BasmatiHighlight';
 import { CategoryNav } from './components/CategoryNav';
 import { MenuCard } from './components/MenuCard';
 import { CartDrawer } from './components/CartDrawer';
+import { OrderStatusIndicator } from './components/OrderStatusIndicator';
 import { AdminPanelModal } from './components/AdminPanelModal';
 import { OwnerAuthModal } from './components/OwnerAuthModal';
 import { LocationAndContact } from './components/LocationAndContact';
@@ -112,6 +114,10 @@ export default function App() {
     setIsOwnerAuthOpen(true);
   };
 
+  // Order Type & Auto-detected location state (for Order Status indicator & CartDrawer)
+  const [orderType, setOrderType] = useState<OrderType>('delivery');
+  const [detectedLocation, setDetectedLocation] = useState<DetectedLocationResult | null>(null);
+
   // Table QR param detection (e.g. ?table=Table%203)
   const [dineInTable, setDineInTable] = useState<string | null>(null);
 
@@ -121,6 +127,7 @@ export default function App() {
       const table = params.get('table');
       if (table) {
         setDineInTable(table);
+        setOrderType('dine_in');
       }
     }
   }, []);
@@ -306,6 +313,20 @@ export default function App() {
       {/* Main Dishes Catalog Section */}
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 w-full space-y-12">
         
+        {/* Customer Order Status & Dispatch Info Block (appears when items are in cart) */}
+        {cartCount > 0 && (
+          <OrderStatusIndicator
+            cartCount={cartCount}
+            cartTotal={cartTotal}
+            onOpenCart={() => setIsCartOpen(true)}
+            variant="page"
+            activeOrderType={orderType}
+            onOrderTypeChange={setOrderType}
+            detectedLocation={detectedLocation}
+            onLocationDetected={setDetectedLocation}
+          />
+        )}
+
         {/* Results Header or Active Filter Indicator */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-neutral-800/80 pb-4">
           <div>
@@ -432,6 +453,9 @@ export default function App() {
             <span className="bg-white/20 px-2 py-0.5 rounded-lg text-xs">
               ₹{cartTotal}
             </span>
+            <span className="hidden sm:inline-flex items-center bg-black/40 text-amber-300 font-bold text-[10px] px-2 py-0.5 rounded-md">
+              {orderType === 'delivery' ? '25–35 min' : '10–15 min'}
+            </span>
           </button>
         )}
 
@@ -458,6 +482,10 @@ export default function App() {
         onUpdateQuantity={handleUpdateQuantity}
         onRemoveItem={handleRemoveFromCart}
         onClearCart={handleClearCart}
+        externalOrderType={orderType}
+        onExternalOrderTypeChange={setOrderType}
+        externalLocation={detectedLocation}
+        onLocationDetected={setDetectedLocation}
       />
 
       <OwnerAuthModal

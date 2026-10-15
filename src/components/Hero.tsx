@@ -107,17 +107,22 @@ export const Hero: React.FC<HeroProps> = ({ onExploreMenu }) => {
               </a>
             </div>
 
-            {/* Delivery Alert Banner from real menu */}
+            {/* Delivery Alert Banner with 10km radius & below 500m reduced charge */}
             <div className="p-3.5 rounded-xl bg-neutral-900/90 border border-amber-500/30 flex items-start gap-3">
               <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 shrink-0 mt-0.5">
                 <Truck className="w-4 h-4" />
               </div>
               <div className="text-xs sm:text-sm">
-                <p className="font-semibold text-amber-300">
-                  Home Delivery Available!
-                </p>
-                <p className="text-neutral-300">
-                  Call or WhatsApp us directly at{' '}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-bold text-amber-300">
+                    Online WhatsApp Home Delivery (10 KM Radius)
+                  </p>
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-950 border border-emerald-700/60 text-emerald-400 font-bold text-[10px]">
+                    Below 500m: Reduced Fee (FREE)
+                  </span>
+                </div>
+                <p className="text-neutral-300 pt-0.5">
+                  Delivering across Pachikapalem & up to 10 km! Call or WhatsApp:{' '}
                   <strong className="text-white underline">{RESTAURANT_INFO.formattedPhone1}</strong> or{' '}
                   <strong className="text-white underline">{RESTAURANT_INFO.formattedPhone2}</strong>.
                 </p>

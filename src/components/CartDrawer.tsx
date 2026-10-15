@@ -1,7 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CartItem, OrderType } from '../types';
 import { RESTAURANT_INFO } from '../data/menuData';
+import { 
+  calculateDistanceKm, 
+  evaluateDeliveryDistance, 
+  DISTANCE_PRESETS, 
+  RESTAURANT_COORDINATES, 
+  DistanceBracket,
+  DistanceInfo,
+  autoDetectAndSelectLocation,
+  DetectedLocationResult
+} from '../utils/distance';
 import { DietaryIndicator } from './DietaryIndicator';
+import { OrderStatusIndicator } from './OrderStatusIndicator';
 import { 
   X, 
   Trash2, 
@@ -13,7 +24,14 @@ import {
   ShoppingBag, 
   UtensilsCrossed, 
   AlertCircle,
-  Clock
+  Clock,
+  MapPin,
+  Compass,
+  Navigation,
+  CheckCircle2,
+  Sparkles,
+  Loader2,
+  Check
 } from 'lucide-react';
 
 interface CartDrawerProps {
@@ -23,6 +41,10 @@ interface CartDrawerProps {
   onUpdateQuantity: (itemId: string, delta: number) => void;
   onRemoveItem: (itemId: string) => void;
   onClearCart: () => void;
+  externalOrderType?: OrderType;
+  onExternalOrderTypeChange?: (type: OrderType) => void;
+  externalLocation?: DetectedLocationResult | null;
+  onLocationDetected?: (result: DetectedLocationResult) => void;
 }
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
@@ -32,14 +54,47 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onUpdateQuantity,
   onRemoveItem,
   onClearCart,
+  externalOrderType,
+  onExternalOrderTypeChange,
+  externalLocation,
+  onLocationDetected,
 }) => {
-  const [orderType, setOrderType] = useState<OrderType>('delivery');
+  const [orderType, setOrderType] = useState<OrderType>(externalOrderType || 'delivery');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [tableNumber, setTableNumber] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [specialInstructions, setSpecialInstructions] = useState('');
   const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
+  const [addressAutoFilled, setAddressAutoFilled] = useState(false);
+
+  // Sync external order type if changed
+  useEffect(() => {
+    if (externalOrderType && externalOrderType !== orderType) {
+      setOrderType(externalOrderType);
+    }
+  }, [externalOrderType]);
+
+  // Sync external detected location if provided
+  useEffect(() => {
+    if (externalLocation) {
+      setDetectedDistanceKm(externalLocation.distanceKm);
+      setUserCoords({ lat: externalLocation.latitude, lng: externalLocation.longitude });
+      setSelectedBracket(externalLocation.bracket);
+      if (!deliveryAddress || addressAutoFilled) {
+        setDeliveryAddress(externalLocation.suggestedAddress);
+        setAddressAutoFilled(true);
+      }
+    }
+  }, [externalLocation]);
+
+  // Distance & Radius Calculation State (10 km limit, <500m reduced fee)
+  const [selectedBracket, setSelectedBracket] = useState<DistanceBracket>('under_500m');
+  const [detectedDistanceKm, setDetectedDistanceKm] = useState<number | null>(null);
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [isLocating, setIsLocating] = useState(false);
+  const [locationStatus, setLocationStatus] = useState<string>('');
+  const [locationError, setLocationError] = useState<string>('');
 
   if (!isOpen) return null;
 
@@ -48,11 +103,64 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     0
   );
 
-  const deliveryFee = orderType === 'delivery' ? (subtotal > 499 ? 0 : 30) : 0;
+  // Compute active distance info
+  const effectiveDistanceKm = detectedDistanceKm !== null 
+    ? detectedDistanceKm 
+    : (DISTANCE_PRESETS.find(p => p.id === selectedBracket)?.typicalKm ?? 0.35);
+
+  const deliveryInfo: DistanceInfo = evaluateDeliveryDistance(effectiveDistanceKm, subtotal);
+  const deliveryFee = orderType === 'delivery' ? deliveryInfo.calculatedFee : 0;
   const grandTotal = subtotal + deliveryFee;
 
   const handleNoteChange = (itemId: string, note: string) => {
     setItemNotes((prev) => ({ ...prev, [itemId]: note }));
+  };
+
+  const handleDetectLocation = async () => {
+    setIsLocating(true);
+    setLocationError('');
+    setLocationStatus('Pinpointing your location via GPS & resolving address...');
+
+    try {
+      const result = await autoDetectAndSelectLocation(subtotal);
+      const distKm = result.distanceKm;
+      const distMeters = result.distanceMeters;
+
+      setDetectedDistanceKm(distKm);
+      setUserCoords({ lat: result.latitude, lng: result.longitude });
+      setSelectedBracket(result.bracket);
+      
+      // Auto-fill delivery address with resolved location and landmark!
+      setDeliveryAddress(result.suggestedAddress);
+      setAddressAutoFilled(true);
+
+      if (distMeters <= RESTAURANT_COORDINATES.reducedFeeThresholdMeters) {
+        setLocationStatus(`📍 Located & filled! You are only ${distMeters}m away (< 500m). Special reduced delivery charge (FREE ₹0) automatically applied!`);
+      } else if (distKm <= 10) {
+        setLocationStatus(`📍 Located & filled! ${distKm.toFixed(2)} km away. Within our 10 km delivery radius! Delivery address auto-filled.`);
+      } else {
+        setLocationStatus(`⚠️ Located & filled! ${distKm.toFixed(2)} km away (Beyond our 10 km radius. Takeaway / direct call recommended).`);
+      }
+
+      if (onLocationDetected) {
+        onLocationDetected(result);
+      }
+    } catch (error: unknown) {
+      let errorMsg = 'Could not access GPS location. Please select your distance bracket below.';
+      if (error && typeof error === 'object' && 'code' in error) {
+        const geoErr = error as { code: number };
+        if (geoErr.code === 1) {
+          errorMsg = 'Location permission was denied. Please select your approximate distance below.';
+        } else if (geoErr.code === 2) {
+          errorMsg = 'GPS location is currently unavailable. Please pick your distance bracket below.';
+        }
+      } else if (error instanceof Error) {
+        errorMsg = error.message;
+      }
+      setLocationError(errorMsg);
+    } finally {
+      setIsLocating(false);
+    }
   };
 
   const generateWhatsAppMessage = () => {
@@ -68,9 +176,30 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
     if (customerName) msg += `*Customer:* ${customerName}\n`;
     if (customerPhone) msg += `*Phone:* ${customerPhone}\n`;
-    if (orderType === 'delivery' && deliveryAddress) {
-      msg += `*Address:* ${deliveryAddress}\n`;
+
+    if (orderType === 'delivery') {
+      const distanceDisplay = detectedDistanceKm !== null 
+        ? `${Math.round(detectedDistanceKm * 1000)} meters (${detectedDistanceKm.toFixed(2)} km)` 
+        : `${deliveryInfo.bracketLabel}`;
+
+      msg += `*Delivery Distance:* ${distanceDisplay} from Pachikapalem\n`;
+      msg += `*10km Radius Status:* ${
+        deliveryInfo.isUnder500m
+          ? '⚡ Below 500m (Reduced Delivery Fee: FREE ₹0)'
+          : deliveryInfo.isWithin10km
+          ? '✅ Within 10 KM Delivery Radius'
+          : '⚠️ Note: Outside Standard 10 KM Radius'
+      }\n`;
+
+      if (userCoords) {
+        msg += `*Customer GPS Pin:* https://maps.google.com/?q=${userCoords.lat},${userCoords.lng}\n`;
+      }
+
+      if (deliveryAddress) {
+        msg += `*Address / Landmark:* ${deliveryAddress}\n`;
+      }
     }
+
     if (orderType === 'dine_in' && tableNumber) {
       msg += `*Table Number:* ${tableNumber}\n`;
     }
@@ -87,10 +216,21 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
     msg += `--------------------------------\n`;
     msg += `*Subtotal:* ₹${subtotal}\n`;
-    if (deliveryFee > 0) msg += `*Delivery Fee:* ₹${deliveryFee}\n`;
-    if (orderType === 'delivery' && subtotal > 499) {
-      msg += `*Delivery:* FREE (Orders above ₹499)\n`;
+
+    if (orderType === 'delivery') {
+      if (deliveryFee === 0) {
+        if (deliveryInfo.isUnder500m) {
+          msg += `*Delivery Fee:* ₹0 FREE (Reduced below 500m radius!)\n`;
+        } else if (subtotal > 499) {
+          msg += `*Delivery Fee:* ₹0 FREE (Orders above ₹499 within 10km)\n`;
+        } else {
+          msg += `*Delivery Fee:* ₹0 FREE\n`;
+        }
+      } else {
+        msg += `*Delivery Fee:* ₹${deliveryFee}\n`;
+      }
     }
+
     msg += `*GRAND TOTAL:* ₹${grandTotal}\n`;
 
     if (specialInstructions) {
@@ -99,7 +239,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     }
 
     msg += `--------------------------------\n`;
-    msg += `Please confirm my order. Thank you!`;
+    msg += `📍 *Restaurant Location:* ${RESTAURANT_COORDINATES.mapUrl}\n`;
+    msg += `Please confirm my order and dispatch timeline. Thank you!`;
 
     return encodeURIComponent(msg);
   };
@@ -174,7 +315,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   <div className="grid grid-cols-3 gap-1.5 p-1 bg-neutral-900 rounded-xl border border-neutral-800 text-xs">
                     <button
                       type="button"
-                      onClick={() => setOrderType('delivery')}
+                      onClick={() => {
+                        setOrderType('delivery');
+                        onExternalOrderTypeChange?.('delivery');
+                      }}
                       className={`py-2 rounded-lg font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
                         orderType === 'delivery'
                           ? 'bg-red-600 text-white shadow-md'
@@ -186,7 +330,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setOrderType('dine_in')}
+                      onClick={() => {
+                        setOrderType('dine_in');
+                        onExternalOrderTypeChange?.('dine_in');
+                      }}
                       className={`py-2 rounded-lg font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
                         orderType === 'dine_in'
                           ? 'bg-red-600 text-white shadow-md'
@@ -198,7 +345,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setOrderType('takeaway')}
+                      onClick={() => {
+                        setOrderType('takeaway');
+                        onExternalOrderTypeChange?.('takeaway');
+                      }}
                       className={`py-2 rounded-lg font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
                         orderType === 'takeaway'
                           ? 'bg-red-600 text-white shadow-md'
@@ -210,6 +360,26 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     </button>
                   </div>
                 </div>
+
+                {/* Live Order Status & Estimates Mock Indicator inside Cart */}
+                <OrderStatusIndicator
+                  cartCount={cart.length}
+                  cartTotal={subtotal}
+                  onOpenCart={() => {}}
+                  variant="drawer"
+                  activeOrderType={orderType}
+                  detectedLocation={userCoords && detectedDistanceKm !== null ? {
+                    latitude: userCoords.lat,
+                    longitude: userCoords.lng,
+                    distanceKm: detectedDistanceKm,
+                    distanceMeters: Math.round(detectedDistanceKm * 1000),
+                    bracket: selectedBracket,
+                    suggestedAddress: deliveryAddress,
+                    isUnder500m: deliveryInfo.isUnder500m,
+                    isWithin10km: deliveryInfo.isWithin10km,
+                    calculatedFee: deliveryFee
+                  } : null}
+                />
 
                 {/* Items List */}
                 <div className="space-y-3">
@@ -331,15 +501,170 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   )}
 
                   {orderType === 'delivery' && (
-                    <div>
-                      <label className="text-[11px] text-neutral-400 block mb-1">Delivery Address & Landmark</label>
-                      <textarea
-                        rows={2}
-                        value={deliveryAddress}
-                        onChange={(e) => setDeliveryAddress(e.target.value)}
-                        placeholder="Street, Building name, Flat No, Landmark..."
-                        className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-amber-500 resize-none"
-                      />
+                    <div className="space-y-3 p-3.5 rounded-xl bg-neutral-900 border border-neutral-800">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-white uppercase tracking-wider">
+                          <MapPin className="w-3.5 h-3.5 text-red-500" />
+                          <span>Delivery Distance & 10 KM Zone</span>
+                        </div>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-950/80 border border-red-800/60 text-red-300 font-bold">
+                          10 km Radius
+                        </span>
+                      </div>
+
+                      {/* Rule Highlight Callout */}
+                      <div className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800 text-[11px] space-y-1">
+                        <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
+                          <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                          <span>Below 500 Meters: Special Reduced Delivery Charge (₹0 / FREE)!</span>
+                        </div>
+                        <p className="text-neutral-400 text-[10px] leading-tight">
+                          Dispatched from <a href={RESTAURANT_COORDINATES.mapUrl} target="_blank" rel="noopener noreferrer" className="text-amber-400 hover:underline inline-flex items-center gap-0.5">Pachikapalem Hub <Navigation className="w-2.5 h-2.5" /></a> within 10 km.
+                        </p>
+                      </div>
+
+                      {/* GPS Detection Button with Auto-Fill Feature */}
+                      <div>
+                        <button
+                          type="button"
+                          onClick={handleDetectLocation}
+                          disabled={isLocating}
+                          className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-neutral-950 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 shadow-md shadow-amber-950/40"
+                        >
+                          {isLocating ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin text-neutral-950" />
+                              <span>Detecting GPS Location & Auto-Filling...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Compass className="w-4 h-4 text-neutral-950" />
+                              <span>Auto-Detect & Fill Location (GPS)</span>
+                            </>
+                          )}
+                        </button>
+
+                        {/* Location status or error */}
+                        {locationStatus && (
+                          <div className={`mt-2 p-2.5 rounded-lg text-xs flex items-start gap-1.5 ${
+                            deliveryInfo.isUnder500m
+                              ? 'bg-emerald-950/80 border border-emerald-800/80 text-emerald-300'
+                              : deliveryInfo.isWithin10km
+                              ? 'bg-blue-950/80 border border-blue-800/80 text-blue-300'
+                              : 'bg-rose-950/80 border border-rose-800/80 text-rose-300'
+                          }`}>
+                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                            <span className="leading-tight">{locationStatus}</span>
+                          </div>
+                        )}
+
+                        {locationError && (
+                          <div className="mt-2 p-2 rounded-lg bg-rose-950/70 border border-rose-800/60 text-rose-300 text-xs flex items-start gap-1.5">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                            <span className="leading-tight">{locationError}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Manual Distance Range Picker */}
+                      <div className="space-y-1.5 pt-1">
+                        <label className="text-[10px] text-neutral-400 uppercase font-bold block">
+                          Or Select Distance from Pachikapalem:
+                        </label>
+                        <div className="space-y-1">
+                          {DISTANCE_PRESETS.map((preset) => {
+                            const isSelected = selectedBracket === preset.id && detectedDistanceKm === null;
+                            const isAutoActive = selectedBracket === preset.id && detectedDistanceKm !== null;
+                            const isUnder500 = preset.id === 'under_500m';
+                            const isOutOfRange = preset.id === 'above_10km';
+
+                            return (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedBracket(preset.id);
+                                  setDetectedDistanceKm(null);
+                                  setLocationStatus('');
+                                  setLocationError('');
+                                }}
+                                className={`w-full p-2 rounded-lg text-left text-xs transition-all border flex items-center justify-between cursor-pointer ${
+                                  isSelected || isAutoActive
+                                    ? isUnder500
+                                      ? 'bg-emerald-950/60 border-emerald-500 text-white font-semibold'
+                                      : isOutOfRange
+                                      ? 'bg-rose-950/60 border-rose-500 text-white font-semibold'
+                                      : 'bg-amber-950/50 border-amber-500 text-white font-semibold'
+                                    : 'bg-neutral-950 hover:bg-neutral-800/60 border-neutral-800 text-neutral-300'
+                                }`}
+                              >
+                                <div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-bold">{preset.label}</span>
+                                    {isUnder500 && (
+                                      <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 text-[9px] font-bold">
+                                        FREE (₹0)
+                                      </span>
+                                    )}
+                                    {isAutoActive && (
+                                      <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[9px] font-bold">
+                                        GPS Detected
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="text-[10px] text-neutral-400 block">
+                                    {preset.subLabel}
+                                  </span>
+                                </div>
+                                <span className={`text-[11px] font-bold shrink-0 ml-2 ${
+                                  isUnder500 ? 'text-emerald-400' : isOutOfRange ? 'text-rose-400' : 'text-neutral-300'
+                                }`}>
+                                  {preset.feeNotice}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Delivery Address & Landmark Input with Auto-Fill Status */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[11px] text-neutral-400 block font-medium">
+                            Delivery Address & Landmark
+                          </label>
+                          {addressAutoFilled && (
+                            <span className="text-[9px] text-emerald-300 bg-emerald-950/90 border border-emerald-800/80 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                              <CheckCircle2 className="w-2.5 h-2.5" /> Auto-Filled from GPS
+                            </span>
+                          )}
+                        </div>
+                        <textarea
+                          rows={2}
+                          value={deliveryAddress}
+                          onChange={(e) => {
+                            setDeliveryAddress(e.target.value);
+                            setAddressAutoFilled(false);
+                          }}
+                          placeholder="House/Plot No, Street, Landmark near Pachikapalem..."
+                          className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-amber-500 resize-none"
+                        />
+                        {addressAutoFilled && (
+                          <div className="mt-1 flex items-center justify-between text-[10px] text-neutral-400">
+                            <span>You can edit or add specific house/flat number</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDeliveryAddress('');
+                                setAddressAutoFilled(false);
+                              }}
+                              className="text-rose-400 hover:text-rose-300 cursor-pointer"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -349,7 +674,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       type="text"
                       value={specialInstructions}
                       onChange={(e) => setSpecialInstructions(e.target.value)}
-                      placeholder="e.g., Deliver hot, keep forks & tissues..."
+                      placeholder="e.g., Deliver hot, keep extra spoons & tissues..."
                       className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-amber-500"
                     />
                   </div>
@@ -362,11 +687,23 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     <span className="font-semibold">₹{subtotal}</span>
                   </div>
                   {orderType === 'delivery' && (
-                    <div className="flex justify-between text-neutral-400">
-                      <span>Delivery Fee</span>
+                    <div className="flex justify-between text-neutral-400 items-center">
+                      <div className="flex items-center gap-1.5">
+                        <span>Delivery Charge</span>
+                        {deliveryInfo.isUnder500m && (
+                          <span className="text-[9px] text-emerald-300 font-bold bg-emerald-950 border border-emerald-800/80 px-1.5 py-0.5 rounded">
+                            Below 500m Reduced (FREE)
+                          </span>
+                        )}
+                        {!deliveryInfo.isUnder500m && deliveryFee === 0 && subtotal > 499 && (
+                          <span className="text-[9px] text-emerald-300 font-bold bg-emerald-950 border border-emerald-800/80 px-1.5 py-0.5 rounded">
+                            Free on ₹499+
+                          </span>
+                        )}
+                      </div>
                       <span>
                         {deliveryFee === 0 ? (
-                          <span className="text-emerald-400 font-bold">FREE</span>
+                          <span className="text-emerald-400 font-bold">FREE (₹0)</span>
                         ) : (
                           `₹${deliveryFee}`
                         )}
