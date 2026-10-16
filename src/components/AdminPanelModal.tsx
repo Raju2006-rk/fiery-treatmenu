@@ -20,8 +20,11 @@ import {
   UploadCloud,
   Truck,
   Navigation,
-  MapPin
+  MapPin,
+  FileSpreadsheet
 } from 'lucide-react';
+import { OrderDetails } from '../types';
+import { GoogleWorkspacePanel } from './GoogleWorkspacePanel';
 
 interface AdminPanelModalProps {
   isOpen: boolean;
@@ -31,6 +34,7 @@ interface AdminPanelModalProps {
   onAddItem: (newItem: MenuItem) => void;
   onDeleteItem: (itemId: string) => void;
   onResetMenu: () => void;
+  orders?: OrderDetails[];
 }
 
 export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
@@ -41,7 +45,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   onAddItem,
   onDeleteItem,
   onResetMenu,
+  orders = [],
 }) => {
+  const [activeTab, setActiveTab] = useState<'menu' | 'google_workspace'>('menu');
   const [search, setSearch] = useState('');
   const [selectedCat, setSelectedCat] = useState<string>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -216,6 +222,44 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
           </div>
         </div>
 
+        {/* Navigation Tabs (Menu CMS vs Google Workspace Sync) */}
+        <div className="flex items-center gap-2 border-b border-neutral-800 pb-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setActiveTab('menu')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              activeTab === 'menu'
+                ? 'bg-amber-500 text-neutral-950 shadow-md'
+                : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-300'
+            }`}
+          >
+            <Settings className="w-3.5 h-3.5" />
+            <span>Menu Dishes CMS</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('google_workspace')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              activeTab === 'google_workspace'
+                ? 'bg-emerald-500 text-neutral-950 shadow-md'
+                : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-300'
+            }`}
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <span>Google Sheets & Drive Sync</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-emerald-950 text-emerald-300 text-[9px] font-bold border border-emerald-700/60">
+              Workspace
+            </span>
+          </button>
+        </div>
+
+        {activeTab === 'google_workspace' ? (
+          <div className="flex-1 overflow-y-auto pr-1">
+            <GoogleWorkspacePanel orders={orders} />
+          </div>
+        ) : (
+          <>
         {/* Delivery Radius & WhatsApp Ordering Configuration Info for Owner */}
         <div className="p-3 sm:p-3.5 rounded-2xl bg-neutral-950 border border-neutral-800 flex items-center justify-between flex-wrap gap-3 text-xs shrink-0">
           <div className="flex items-center gap-2.5">
@@ -734,6 +778,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             Done Editing
           </button>
         </div>
+        </>
+        )}
 
       </div>
     </div>

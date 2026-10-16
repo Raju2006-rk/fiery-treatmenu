@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { MenuItem, CartItem, CategoryId, OrderType } from './types';
+import { MenuItem, CartItem, CategoryId, OrderType, OrderDetails } from './types';
 import { INITIAL_MENU_ITEMS, CATEGORIES, RESTAURANT_INFO } from './data/menuData';
 import { DetectedLocationResult } from './utils/distance';
+import { initAuth } from './services/googleWorkspace';
+import { User } from 'firebase/auth';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
 import { BasmatiHighlight } from './components/BasmatiHighlight';
@@ -112,6 +114,74 @@ export default function App() {
 
   const handleOpenOwnerSettings = () => {
     setIsOwnerAuthOpen(true);
+  };
+
+  // Google Workspace User State
+  const [googleUser, setGoogleUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = initAuth(
+      (user) => setGoogleUser(user),
+      () => setGoogleUser(null)
+    );
+    return () => unsubscribe();
+  }, []);
+
+  // Restaurant Orders History (for sync to Google Sheets)
+  const [orders, setOrders] = useState<OrderDetails[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('firey_treat_orders_v1');
+        if (saved) return JSON.parse(saved);
+      } catch (e) {
+        console.error('Error loading orders:', e);
+      }
+    }
+    return [
+      {
+        id: 'FT-894121',
+        items: [
+          { menuItem: INITIAL_MENU_ITEMS[0], quantity: 2 },
+          { menuItem: INITIAL_MENU_ITEMS[2], quantity: 1 }
+        ],
+        orderType: 'delivery',
+        customerName: 'Kavitha R',
+        customerPhone: '9848022334',
+        address: 'Pachikapalem Main Road, Near SBI ATM (0.4 km away)',
+        subtotal: 310,
+        deliveryFee: 0,
+        grandTotal: 310,
+        timestamp: Date.now() - 3600000 * 2,
+        status: 'completed'
+      },
+      {
+        id: 'FT-894122',
+        items: [
+          { menuItem: INITIAL_MENU_ITEMS[1], quantity: 1 },
+          { menuItem: INITIAL_MENU_ITEMS[3], quantity: 1 }
+        ],
+        orderType: 'takeaway',
+        customerName: 'Ramesh Reddy',
+        customerPhone: '9440112233',
+        subtotal: 240,
+        deliveryFee: 0,
+        grandTotal: 240,
+        timestamp: Date.now() - 1800000,
+        status: 'preparing'
+      }
+    ];
+  });
+
+  const handleOrderPlaced = (newOrder: OrderDetails) => {
+    setOrders((prev) => {
+      const updated = [newOrder, ...prev];
+      try {
+        localStorage.setItem('firey_treat_orders_v1', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Error saving orders:', e);
+      }
+      return updated;
+    });
   };
 
   // Order Type & Auto-detected location state (for Order Status indicator & CartDrawer)
@@ -278,6 +348,8 @@ export default function App() {
         cartTotal={cartTotal}
         onOpenCart={() => setIsCartOpen(true)}
         onOpenAdmin={handleOpenOwnerSettings}
+        onOpenGoogleWorkspace={handleOpenOwnerSettings}
+        googleUser={googleUser}
         activeCategory={selectedCategory}
       />
 
@@ -486,6 +558,7 @@ export default function App() {
         onExternalOrderTypeChange={setOrderType}
         externalLocation={detectedLocation}
         onLocationDetected={setDetectedLocation}
+        onOrderPlaced={handleOrderPlaced}
       />
 
       <OwnerAuthModal
@@ -502,6 +575,7 @@ export default function App() {
         onAddItem={handleAddMenuItem}
         onDeleteItem={handleDeleteMenuItem}
         onResetMenu={handleResetMenu}
+        orders={orders}
       />
 
     </div>

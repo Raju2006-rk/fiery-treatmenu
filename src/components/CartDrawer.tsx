@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { CartItem, OrderType } from '../types';
+import { CartItem, OrderType, OrderDetails } from '../types';
 import { RESTAURANT_INFO } from '../data/menuData';
+import { 
+  getAccessToken, 
+  findOrCreateOrdersSpreadsheet, 
+  appendOrderToGoogleSheet 
+} from '../services/googleWorkspace';
 import { 
   calculateDistanceKm, 
   evaluateDeliveryDistance, 
@@ -45,6 +50,7 @@ interface CartDrawerProps {
   onExternalOrderTypeChange?: (type: OrderType) => void;
   externalLocation?: DetectedLocationResult | null;
   onLocationDetected?: (result: DetectedLocationResult) => void;
+  onOrderPlaced?: (order: OrderDetails) => void;
 }
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
@@ -58,6 +64,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onExternalOrderTypeChange,
   externalLocation,
   onLocationDetected,
+  onOrderPlaced,
 }) => {
   const [orderType, setOrderType] = useState<OrderType>(externalOrderType || 'delivery');
   const [customerName, setCustomerName] = useState('');
@@ -250,6 +257,40 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     }
     const encoded = generateWhatsAppMessage();
     if (!encoded) return;
+
+    // Construct order details object for CMS and Google Sheets sync
+    const newOrder: OrderDetails = {
+      id: `FT-${Date.now().toString().slice(-6)}`,
+      items: [...cart],
+      orderType,
+      customerName: customerName.trim() || 'WhatsApp Customer',
+      customerPhone: customerPhone.trim() || '',
+      address: orderType === 'delivery' 
+        ? (deliveryAddress || (userCoords ? `${userCoords.lat.toFixed(5)}, ${userCoords.lng.toFixed(5)}` : 'Local'))
+        : undefined,
+      tableNumber: orderType === 'dine_in' ? tableNumber : undefined,
+      instructions: specialInstructions || undefined,
+      subtotal,
+      deliveryFee,
+      grandTotal,
+      timestamp: Date.now(),
+      status: 'new',
+    };
+
+    onOrderPlaced?.(newOrder);
+
+    // Auto-save to Google Sheet if user is authenticated with Google Workspace
+    getAccessToken().then(async (token) => {
+      if (token) {
+        try {
+          const sheet = await findOrCreateOrdersSpreadsheet(token);
+          await appendOrderToGoogleSheet(token, sheet.id, newOrder);
+        } catch (e) {
+          console.error('Auto-append to Google Sheet failed:', e);
+        }
+      }
+    });
+
     const url = `https://wa.me/${RESTAURANT_INFO.whatsappNumber}?text=${encoded}`;
     window.open(url, '_blank');
   };

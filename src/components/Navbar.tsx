@@ -7,7 +7,8 @@ import {
   Menu as MenuIcon, 
   X,
   MessageCircle,
-  Lock
+  Lock,
+  FileSpreadsheet
 } from 'lucide-react';
 import { RESTAURANT_INFO } from '../data/menuData';
 
@@ -17,6 +18,8 @@ interface NavbarProps {
   onOpenCart: () => void;
   onOpenAdmin: () => void;
   activeCategory: string;
+  onOpenGoogleWorkspace?: () => void;
+  googleUser?: { displayName?: string | null; email?: string | null; photoURL?: string | null } | null;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -24,6 +27,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   cartTotal,
   onOpenCart,
   onOpenAdmin,
+  onOpenGoogleWorkspace,
+  googleUser,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -116,6 +121,23 @@ export const Navbar: React.FC<NavbarProps> = ({
               <MessageCircle className="w-3.5 h-3.5 text-emerald-400" />
               <span>WhatsApp</span>
             </a>
+
+            {/* Google Sheets Sync Button */}
+            {onOpenGoogleWorkspace && (
+              <button
+                id="btn-open-google-sheets"
+                onClick={onOpenGoogleWorkspace}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-neutral-300 hover:text-emerald-300 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-lg transition-colors cursor-pointer"
+                title="Google Sheets Orders & Sales Sync"
+                aria-label="Google Sheets Sync"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                <span className="hidden xl:inline">Google Sheets</span>
+                {googleUser && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                )}
+              </button>
+            )}
 
             {/* Admin CMS Button (Owner Protected) */}
             <button
