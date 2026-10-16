@@ -142,7 +142,7 @@ export const Hero: React.FC<HeroProps> = ({ onExploreMenu }) => {
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   referrerPolicy="no-referrer"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/30 to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/30 to-transparent pointer-events-none" />
                 
                 {/* Floating Badges */}
                 <div className="absolute top-3 left-3 flex gap-2">
@@ -154,10 +154,10 @@ export const Hero: React.FC<HeroProps> = ({ onExploreMenu }) => {
                   </span>
                 </div>
 
-                <div className="absolute bottom-3 left-3 right-3 text-white">
+                <div className="absolute bottom-3 left-3 right-3 text-white pointer-events-none">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="font-bold text-base sm:text-lg">Signature Thunder Wings & Chicken</p>
+                      <p className="font-bold text-base sm:text-lg">Signature Thunder Wings &amp; Chicken</p>
                       <p className="text-xs text-neutral-300">1 / 2 / 4 / 8 / 10 Piece Buckets Available</p>
                     </div>
                     <span className="text-amber-400 font-bold text-sm bg-neutral-950/80 px-2.5 py-1 rounded-lg">

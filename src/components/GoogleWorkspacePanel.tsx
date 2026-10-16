@@ -349,18 +349,22 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
           <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-950/40 border border-emerald-800/40 flex items-center justify-center text-emerald-400">
             <FileSpreadsheet className="w-7 h-7" />
           </div>
-          <div className="max-w-md mx-auto space-y-1">
+          <div className="max-w-md mx-auto space-y-1.5">
             <h4 className="font-display font-bold text-base text-white">
-              Connect Your Google Workspace Account
+              Connect Google Workspace (Excel & Drive)
             </h4>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold">
+              <span>Owner Account:</span>
+              <span className="font-mono text-white">lbreddy8143@gmail.com</span>
+            </div>
             <p className="text-xs text-neutral-400 leading-relaxed">
-              Sign in with your Google account ({'bandirajkumar06@gmail.com'}) to automatically export and log orders to Google Sheets and organize spreadsheets in Google Drive.
+              Sign in with <strong className="text-neutral-200">lbreddy8143@gmail.com</strong> to enable live order logging to Google Sheets (Excel) and automated sales backup in Google Drive.
             </p>
           </div>
           <GoogleSignInButton
             onClick={handleSignIn}
             isLoading={isSigningIn}
-            label="Sign in with Google to Connect Sheets"
+            label="Sign in as lbreddy8143@gmail.com"
             className="mx-auto"
           />
         </div>

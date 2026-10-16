@@ -353,12 +353,13 @@ export default function App() {
         activeCategory={selectedCategory}
       />
 
-      {/* Hero Section */}
+      {/* Hero Section with Customer 3D Showcase */}
       <Hero
         onExploreMenu={() => {
           const menuSection = document.getElementById('menu-section');
           if (menuSection) menuSection.scrollIntoView({ behavior: 'smooth' });
         }}
+        onAddToCart={handleAddToCart}
       />
 
       {/* Dedicated Basmati Rice & Noodles Signboard Highlight */}

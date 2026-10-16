@@ -25,6 +25,10 @@ export const SCOPES = [
 
 const provider = new GoogleAuthProvider();
 SCOPES.forEach((scope) => provider.addScope(scope));
+provider.setCustomParameters({
+  login_hint: 'lbreddy8143@gmail.com',
+  prompt: 'select_account'
+});
 
 // In-memory token cache (never stored in localStorage/sessionStorage per security guidelines)
 let isSigningIn = false;

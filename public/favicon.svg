@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="100%" height="100%">
+  <defs>
+    <!-- Background Circle Radial Gradient -->
+    <radialGradient id="bgGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#141414" />
+      <stop offset="100%" stop-color="#050505" />
+    </radialGradient>
+
+    <!-- Flame Gradient -->
+    <linearGradient id="flameGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#DC2626" />
+      <stop offset="35%" stop-color="#EA580C" />
+      <stop offset="70%" stop-color="#F59E0B" />
+      <stop offset="100%" stop-color="#FDE047" />
+    </linearGradient>
+
+    <!-- Flame Inner Glow -->
+    <linearGradient id="flameInner" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#F97316" />
+      <stop offset="60%" stop-color="#FBBF24" />
+      <stop offset="100%" stop-color="#FEF08A" />
+    </linearGradient>
+
+    <!-- Arc Path for bottom text: IT'S A FRY & PIE -->
+    <path id="bottomArc" d="M 120 330 A 155 155 0 0 0 380 330" fill="none" />
+  </defs>
+
+  <!-- Radiating Sketch Rays around the circle -->
+  <g stroke="#F5F5F5" stroke-width="4.5" stroke-linecap="round" opacity="0.95">
+    <!-- Top & Angles -->
+    <line x1="250" y1="15" x2="250" y2="40" />
+    <line x1="285" y1="20" x2="295" y2="44" />
+    <line x1="215" y1="20" x2="205" y2="44" />
+    <line x1="330" y1="32" x2="345" y2="58" />
+    <line x1="170" y1="32" x2="155" y2="58" />
+    <line x1="380" y1="58" x2="398" y2="86" />
+    <line x1="120" y1="58" x2="102" y2="86" />
+    <line x1="425" y1="95" x2="448" y2="125" />
+    <line x1="75" y1="95" x2="52" y2="125" />
+    <!-- Sides -->
+    <line x1="455" y1="150" x2="480" y2="165" />
+    <line x1="45" y1="150" x2="20" y2="165" />
+    <line x1="465" y1="210" x2="492" y2="215" />
+    <line x1="35" y1="210" x2="8" y2="215" />
+    <line x1="460" y1="270" x2="488" y2="280" />
+    <line x1="40" y1="270" x2="12" y2="280" />
+    <line x1="440" y1="335" x2="465" y2="355" />
+    <line x1="60" y1="335" x2="35" y2="355" />
+    <!-- Bottom & Angles -->
+    <line x1="405" y1="395" x2="425" y2="422" />
+    <line x1="95" y1="395" x2="75" y2="422" />
+    <line x1="355" y1="440" x2="370" y2="468" />
+    <line x1="145" y1="440" x2="130" y2="468" />
+    <line x1="300" y1="465" x2="310" y2="492" />
+    <line x1="200" y1="465" x2="190" y2="492" />
+    <line x1="250" y1="472" x2="250" y2="496" />
+  </g>
+
+  <!-- Main Circle Background -->
+  <circle cx="250" cy="250" r="205" fill="url(#bgGrad)" stroke="#111" stroke-width="2" />
+
+  <!-- Outer Red Ring -->
+  <circle cx="250" cy="250" r="195" fill="none" stroke="#DC2626" stroke-width="7" />
+
+  <!-- Inner Green Ring -->
+  <circle cx="250" cy="250" r="183" fill="none" stroke="#16A34A" stroke-width="7" />
+
+  <!-- Blazing Fire Flame at Top -->
+  <g transform="translate(250, 140)">
+    <!-- Main Flame Outer Body -->
+    <path d="M 0 -115 
+             C 18 -85, 45 -65, 48 -35
+             C 50 -15, 38 5, 22 15
+             C 45 2, 65 25, 58 55
+             C 50 88, 15 95, 0 95
+             C -15 95, -50 88, -58 55
+             C -65 25, -45 2, -22 15
+             C -38 5, -50 -15, -48 -35
+             C -45 -65, -18 -85, 0 -115 Z" 
+          fill="url(#flameGrad)" />
+
+    <!-- Flame Side Licks & Motion -->
+    <path d="M -8 -80 
+             C 8 -55, 28 -40, 24 -15
+             C 20 5, 5 15, -5 20
+             C 15 15, 28 35, 20 58
+             C 12 78, -5 85, -15 85
+             C -28 85, -42 75, -45 52
+             C -48 28, -30 10, -15 5
+             C -30 2, -35 -20, -30 -38
+             C -25 -58, -12 -70, -8 -80 Z" 
+          fill="url(#flameInner)" opacity="0.85" />
+
+    <!-- Core Yellow Tip -->
+    <path d="M 0 -45 
+             C 10 -28, 16 -15, 12 5
+             C 8 20, -2 30, -5 32
+             C 8 28, 12 42, 6 54
+             C 0 65, -10 68, -12 68
+             C -18 68, -25 60, -26 48
+             C -28 32, -18 20, -8 16
+             C -16 12, -18 -5, -15 -18
+             C -12 -32, -4 -38, 0 -45 Z" 
+          fill="#FEF08A" opacity="0.9" />
+  </g>
+
+  <!-- ESTD. and 2022 Text -->
+  <text x="180" y="222" 
+        fill="#FFFFFF" 
+        font-family="system-ui, -apple-system, sans-serif" 
+        font-size="16" 
+        font-weight="900" 
+        text-anchor="middle" 
+        letter-spacing="1.5">ESTD.</text>
+
+  <text x="320" y="222" 
+        fill="#FFFFFF" 
+        font-family="system-ui, -apple-system, sans-serif" 
+        font-size="16" 
+        font-weight="900" 
+        text-anchor="middle" 
+        letter-spacing="1.5">2022</text>
+
+  <!-- "Firey Treat" Main Green Cursive / Script Typography -->
+  <g transform="translate(250, 290)">
+    <!-- Text Shadow for Depth -->
+    <text x="0" y="0" 
+          fill="#0A3614" 
+          font-family="'Brush Script MT', 'Segoe Script', 'Caveat', 'Playball', 'Lucida Handwriting', cursive, sans-serif" 
+          font-size="64" 
+          font-weight="bold" 
+          text-anchor="middle" 
+          letter-spacing="0.5" 
+          transform="translate(2, 2)">Firey Treat</text>
+
+    <!-- Main Green Text -->
+    <text x="0" y="0" 
+          fill="#22C55E" 
+          font-family="'Brush Script MT', 'Segoe Script', 'Caveat', 'Playball', 'Lucida Handwriting', cursive, sans-serif" 
+          font-size="64" 
+          font-weight="bold" 
+          text-anchor="middle" 
+          letter-spacing="0.5">Firey Treat</text>
+  </g>
+
+  <!-- Spatula Utensil below "Firey Treat" -->
+  <g transform="translate(145, 320)" fill="#16A34A" stroke="#16A34A">
+    <!-- Spatula Handle Line -->
+    <line x1="0" y1="12" x2="145" y2="12" stroke-width="5.5" stroke-linecap="round" />
+    <!-- Spatula Head Base -->
+    <rect x="145" y="2" width="55" height="20" rx="3" fill="#16A34A" stroke="none" />
+    <!-- Spatula Cutout Slots -->
+    <rect x="156" y="5" width="4" height="14" rx="1.5" fill="#0A0A0A" stroke="none" />
+    <rect x="168" y="5" width="4" height="14" rx="1.5" fill="#0A0A0A" stroke="none" />
+    <rect x="180" y="5" width="4" height="14" rx="1.5" fill="#0A0A0A" stroke="none" />
+  </g>
+
+  <!-- Bottom Arch Text: IT'S A FRY & PIE -->
+  <text fill="#FFFFFF" 
+        font-family="system-ui, -apple-system, sans-serif" 
+        font-size="20" 
+        font-weight="900" 
+        letter-spacing="4">
+    <textPath href="#bottomArc" startOffset="50%" text-anchor="middle">
+      IT'S A FRY &amp; PIE
+    </textPath>
+  </text>
+</svg>

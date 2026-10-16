@@ -1,6 +1,7 @@
 import React from 'react';
 import { Flame, PhoneCall, MessageCircle, Heart, Settings, MapPin, Navigation, Lock } from 'lucide-react';
 import { RESTAURANT_INFO } from '../data/menuData';
+import fireyTreatLogo from '../assets/images/firey_treat_logo.svg';
 
 interface FooterProps {
   onOpenAdmin: () => void;
@@ -16,12 +17,21 @@ export const Footer: React.FC<FooterProps> = ({ onOpenAdmin }) => {
           {/* Brand Info */}
           <div className="space-y-3">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-red-600 to-amber-500 flex items-center justify-center text-white">
-                <Flame className="w-5 h-5" />
+              <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 border border-neutral-800">
+                <img
+                  src={fireyTreatLogo}
+                  alt="Firey Treat Logo"
+                  className="w-full h-full object-contain"
+                />
               </div>
-              <span className="font-display font-black text-xl text-white tracking-tight uppercase">
-                Firey Treat
-              </span>
+              <div>
+                <span className="font-display font-black text-xl text-white tracking-tight uppercase block leading-tight">
+                  Firey Treat
+                </span>
+                <span className="text-[10px] text-amber-400 font-semibold tracking-wider uppercase block">
+                  It&apos;s a Fry &amp; Pie
+                </span>
+              </div>
             </div>
             <p className="text-xs text-neutral-400 leading-relaxed">
               Serving mouth-watering crunchy Fried Chicken, fiery Thunder Wings, aromatic Basmathi Rice & Noodles, freshly rolled Kathi Wraps, and Biryani.

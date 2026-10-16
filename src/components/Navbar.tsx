@@ -5,12 +5,12 @@ import {
   ShoppingBag, 
   Settings, 
   Menu as MenuIcon, 
-  X,
-  MessageCircle,
-  Lock,
-  FileSpreadsheet
+  X, 
+  MessageCircle, 
+  Lock 
 } from 'lucide-react';
 import { RESTAURANT_INFO } from '../data/menuData';
+import fireyTreatLogo from '../assets/images/firey_treat_logo.svg';
 
 interface NavbarProps {
   cartCount: number;
@@ -49,10 +49,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div 
             id="brand-logo" 
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-            className="flex items-center gap-3 cursor-pointer group"
+            className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group"
           >
-            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-red-600 via-orange-600 to-amber-500 flex items-center justify-center shadow-lg shadow-orange-950/50 group-hover:scale-105 transition-transform">
-              <Flame className="w-6 h-6 text-white animate-pulse" />
+            <div className="relative w-11 h-11 sm:w-13 sm:h-13 rounded-full overflow-hidden shrink-0 group-hover:scale-105 transition-transform drop-shadow-[0_0_12px_rgba(234,88,12,0.4)]">
+              <img
+                src={fireyTreatLogo}
+                alt="Firey Treat - It's a Fry & Pie Logo"
+                className="w-full h-full object-contain"
+              />
             </div>
             <div>
               <div className="flex items-center gap-1.5">
@@ -63,8 +67,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                   Veg & Non-Veg
                 </span>
               </div>
-              <p className="text-[11px] text-neutral-400 font-medium tracking-wide">
-                Restaurant & Fast Food
+              <p className="text-[11px] text-amber-400 font-semibold tracking-wide">
+                ESTD. 2022 • IT&apos;S A FRY &amp; PIE
               </p>
             </div>
           </div>
@@ -121,23 +125,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               <MessageCircle className="w-3.5 h-3.5 text-emerald-400" />
               <span>WhatsApp</span>
             </a>
-
-            {/* Google Sheets Sync Button */}
-            {onOpenGoogleWorkspace && (
-              <button
-                id="btn-open-google-sheets"
-                onClick={onOpenGoogleWorkspace}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-neutral-300 hover:text-emerald-300 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-lg transition-colors cursor-pointer"
-                title="Google Sheets Orders & Sales Sync"
-                aria-label="Google Sheets Sync"
-              >
-                <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                <span className="hidden xl:inline">Google Sheets</span>
-                {googleUser && (
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                )}
-              </button>
-            )}
 
             {/* Admin CMS Button (Owner Protected) */}
             <button
