@@ -103,13 +103,14 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     0
   );
 
-  // Compute active distance info
+  // Compute active distance info (only 0-500m is free, 500m-6km: ₹30, 6km-10km: ₹40, >10km: unable to deliver)
   const effectiveDistanceKm = detectedDistanceKm !== null 
     ? detectedDistanceKm 
     : (DISTANCE_PRESETS.find(p => p.id === selectedBracket)?.typicalKm ?? 0.35);
 
-  const deliveryInfo: DistanceInfo = evaluateDeliveryDistance(effectiveDistanceKm, subtotal);
-  const deliveryFee = orderType === 'delivery' ? deliveryInfo.calculatedFee : 0;
+  const deliveryInfo: DistanceInfo = evaluateDeliveryDistance(effectiveDistanceKm);
+  const isDeliveryAbove10km = orderType === 'delivery' && (!deliveryInfo.isWithin10km || effectiveDistanceKm > 10 || selectedBracket === 'above_10km');
+  const deliveryFee = orderType === 'delivery' ? (isDeliveryAbove10km ? 0 : deliveryInfo.calculatedFee) : 0;
   const grandTotal = subtotal + deliveryFee;
 
   const handleNoteChange = (itemId: string, note: string) => {
@@ -122,7 +123,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     setLocationStatus('Pinpointing your location via GPS & resolving address...');
 
     try {
-      const result = await autoDetectAndSelectLocation(subtotal);
+      const result = await autoDetectAndSelectLocation();
       const distKm = result.distanceKm;
       const distMeters = result.distanceMeters;
 
@@ -135,11 +136,13 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       setAddressAutoFilled(true);
 
       if (distMeters <= RESTAURANT_COORDINATES.reducedFeeThresholdMeters) {
-        setLocationStatus(`📍 Located & filled! You are only ${distMeters}m away (< 500m). Special reduced delivery charge (FREE ₹0) automatically applied!`);
+        setLocationStatus(`📍 Located & filled! You are only ${distMeters}m away (< 500m). Reduced delivery charge (FREE ₹0) automatically applied!`);
+      } else if (distKm <= 6) {
+        setLocationStatus(`📍 Located & filled! ${distKm.toFixed(2)} km away (500m–6km zone). Delivery charge: ₹30 applied. Address auto-filled.`);
       } else if (distKm <= 10) {
-        setLocationStatus(`📍 Located & filled! ${distKm.toFixed(2)} km away. Within our 10 km delivery radius! Delivery address auto-filled.`);
+        setLocationStatus(`📍 Located & filled! ${distKm.toFixed(2)} km away (6km–10km zone). Delivery charge: ₹40 applied. Address auto-filled.`);
       } else {
-        setLocationStatus(`⚠️ Located & filled! ${distKm.toFixed(2)} km away (Beyond our 10 km radius. Takeaway / direct call recommended).`);
+        setLocationStatus(`🚫 Unable to Deliver Above 10 km: You are ${distKm.toFixed(2)} km away. Online WhatsApp delivery is not available beyond 10 km. Please select Takeaway (Counter Pickup).`);
       }
 
       if (onLocationDetected) {
@@ -164,6 +167,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   };
 
   const generateWhatsAppMessage = () => {
+    if (isDeliveryAbove10km) {
+      return '';
+    }
+
     let msg = `🔥 *ORDER FOR FIREY TREAT RESTAURANT* 🔥\n`;
     msg += `--------------------------------\n`;
     msg += `*Order Type:* ${
@@ -186,9 +193,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       msg += `*10km Radius Status:* ${
         deliveryInfo.isUnder500m
           ? '⚡ Below 500m (Reduced Delivery Fee: FREE ₹0)'
-          : deliveryInfo.isWithin10km
-          ? '✅ Within 10 KM Delivery Radius'
-          : '⚠️ Note: Outside Standard 10 KM Radius'
+          : `✅ Within 10 KM Radius (${deliveryInfo.bracketLabel})`
       }\n`;
 
       if (userCoords) {
@@ -218,14 +223,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     msg += `*Subtotal:* ₹${subtotal}\n`;
 
     if (orderType === 'delivery') {
-      if (deliveryFee === 0) {
-        if (deliveryInfo.isUnder500m) {
-          msg += `*Delivery Fee:* ₹0 FREE (Reduced below 500m radius!)\n`;
-        } else if (subtotal > 499) {
-          msg += `*Delivery Fee:* ₹0 FREE (Orders above ₹499 within 10km)\n`;
-        } else {
-          msg += `*Delivery Fee:* ₹0 FREE\n`;
-        }
+      if (deliveryFee === 0 && deliveryInfo.isUnder500m) {
+        msg += `*Delivery Fee:* ₹0 FREE (Below 500m radius!)\n`;
       } else {
         msg += `*Delivery Fee:* ₹${deliveryFee}\n`;
       }
@@ -246,7 +245,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   };
 
   const handleWhatsAppSend = () => {
+    if (isDeliveryAbove10km) {
+      return;
+    }
     const encoded = generateWhatsAppMessage();
+    if (!encoded) return;
     const url = `https://wa.me/${RESTAURANT_INFO.whatsappNumber}?text=${encoded}`;
     window.open(url, '_blank');
   };
@@ -568,9 +571,12 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
                       {/* Manual Distance Range Picker */}
                       <div className="space-y-1.5 pt-1">
-                        <label className="text-[10px] text-neutral-400 uppercase font-bold block">
-                          Or Select Distance from Pachikapalem:
-                        </label>
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] text-neutral-400 uppercase font-bold block">
+                            Or Select Distance from Pachikapalem:
+                          </label>
+                          <span className="text-[10px] text-neutral-500">Max limit: 10 km</span>
+                        </div>
                         <div className="space-y-1">
                           {DISTANCE_PRESETS.map((preset) => {
                             const isSelected = selectedBracket === preset.id && detectedDistanceKm === null;
@@ -617,7 +623,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                                   </span>
                                 </div>
                                 <span className={`text-[11px] font-bold shrink-0 ml-2 ${
-                                  isUnder500 ? 'text-emerald-400' : isOutOfRange ? 'text-rose-400' : 'text-neutral-300'
+                                  isUnder500 ? 'text-emerald-400' : isOutOfRange ? 'text-rose-400 font-bold' : 'text-neutral-300 font-semibold'
                                 }`}>
                                   {preset.feeNotice}
                                 </span>
@@ -625,6 +631,33 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                             );
                           })}
                         </div>
+
+                        {/* Unable to Deliver Alert if customer is > 10 km */}
+                        {isDeliveryAbove10km && (
+                          <div className="p-3 rounded-xl bg-rose-950/90 border border-rose-600/80 text-rose-200 text-xs space-y-1.5 shadow-lg mt-2 animate-fadeIn">
+                            <div className="flex items-center gap-1.5 font-bold text-rose-300 text-xs sm:text-sm">
+                              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                              <span>Unable to Deliver Above 10 KM</span>
+                            </div>
+                            <p className="text-[11px] leading-relaxed text-rose-200/90">
+                              Online WhatsApp delivery is not available beyond 10 km radius from Pachikapalem.
+                            </p>
+                            <p className="text-[11px] text-rose-300 font-semibold">
+                              👉 Please select <strong>Takeaway (Counter Pickup)</strong> to place your WhatsApp order, or call us directly.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOrderType('takeaway');
+                                onExternalOrderTypeChange?.('takeaway');
+                              }}
+                              className="w-full mt-1.5 py-2 px-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              <ShoppingBag className="w-3.5 h-3.5" />
+                              <span>Switch to Takeaway & Proceed</span>
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       {/* Delivery Address & Landmark Input with Auto-Fill Status */}
@@ -692,20 +725,22 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         <span>Delivery Charge</span>
                         {deliveryInfo.isUnder500m && (
                           <span className="text-[9px] text-emerald-300 font-bold bg-emerald-950 border border-emerald-800/80 px-1.5 py-0.5 rounded">
-                            Below 500m Reduced (FREE)
+                            Below 500m (FREE)
                           </span>
                         )}
-                        {!deliveryInfo.isUnder500m && deliveryFee === 0 && subtotal > 499 && (
-                          <span className="text-[9px] text-emerald-300 font-bold bg-emerald-950 border border-emerald-800/80 px-1.5 py-0.5 rounded">
-                            Free on ₹499+
+                        {isDeliveryAbove10km && (
+                          <span className="text-[9px] text-rose-300 font-bold bg-rose-950 border border-rose-800/80 px-1.5 py-0.5 rounded">
+                            Above 10 km (Unavailable)
                           </span>
                         )}
                       </div>
                       <span>
-                        {deliveryFee === 0 ? (
+                        {isDeliveryAbove10km ? (
+                          <span className="text-rose-400 font-bold">Unavailable (&gt;10 km)</span>
+                        ) : deliveryFee === 0 ? (
                           <span className="text-emerald-400 font-bold">FREE (₹0)</span>
                         ) : (
-                          `₹${deliveryFee}`
+                          <span className="font-semibold text-neutral-200">₹{deliveryFee}</span>
                         )}
                       </span>
                     </div>
@@ -724,14 +759,47 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
           {/* Drawer Footer Actions */}
           {cart.length > 0 && (
             <div className="p-4 sm:p-5 border-t border-neutral-800 bg-neutral-900/60 space-y-2">
-              <button
-                id="btn-send-whatsapp-order"
-                onClick={handleWhatsAppSend}
-                className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-950/60 flex items-center justify-center gap-2 transition-all cursor-pointer"
-              >
-                <MessageCircle className="w-5 h-5 fill-current" />
-                <span>Order via WhatsApp (₹{grandTotal})</span>
-              </button>
+              {isDeliveryAbove10km ? (
+                <div className="space-y-2">
+                  <div className="p-2.5 rounded-xl bg-rose-950/80 border border-rose-800/80 text-center">
+                    <p className="text-xs font-bold text-rose-300">
+                      🚫 Unable to Deliver Above 10 KM
+                    </p>
+                    <p className="text-[10px] text-neutral-300 mt-0.5">
+                      Online WhatsApp delivery is not accepted for locations above 10 km.
+                    </p>
+                  </div>
+                  
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOrderType('takeaway');
+                      onExternalOrderTypeChange?.('takeaway');
+                    }}
+                    className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-neutral-950 font-bold text-sm shadow-lg shadow-amber-950/50 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    <ShoppingBag className="w-5 h-5" />
+                    <span>Switch to Takeaway & Order via WhatsApp</span>
+                  </button>
+
+                  <button
+                    disabled
+                    className="w-full py-2.5 rounded-xl bg-neutral-900 border border-neutral-800 text-neutral-500 font-bold text-xs flex items-center justify-center gap-2 cursor-not-allowed opacity-60"
+                  >
+                    <X className="w-4 h-4" />
+                    <span>Delivery Not Available Above 10 km</span>
+                  </button>
+                </div>
+              ) : (
+                <button
+                  id="btn-send-whatsapp-order"
+                  onClick={handleWhatsAppSend}
+                  className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-950/60 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <MessageCircle className="w-5 h-5 fill-current" />
+                  <span>Order via WhatsApp (₹{grandTotal})</span>
+                </button>
+              )}
 
               <div className="flex gap-2">
                 <a

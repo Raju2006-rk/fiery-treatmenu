@@ -962,7 +962,7 @@ export const RESTAURANT_INFO = {
   longitude: 79.3611529,
   deliveryRadiusKm: 10,
   reducedDeliveryMeters: 500,
-  deliveryNotice: "Home delivery available within 10 km radius! Reduced delivery charge below 500m (FREE delivery). WhatsApp orders: 8885884141 or 7095973869",
+  deliveryNotice: "Home delivery available within 10 km radius! 0–500m: FREE (₹0) • 500m–6km: ₹30 • 6km–10km: ₹40 (Delivery unavailable above 10 km). WhatsApp orders: 8885884141 or 7095973869",
   partyNotice: "Birthday Party's & Functions Special Biryani Combos Available for Bulk Order",
   basmatiPromise: 'All Rice Items Prepared with 100% Authentic Long-Grain BASMATHI RICE',
 };

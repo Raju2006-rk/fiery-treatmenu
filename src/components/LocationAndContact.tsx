@@ -188,9 +188,11 @@ export const LocationAndContact: React.FC = () => {
                   <p className="text-[11px] opacity-90 pl-5.5">
                     {distanceResult.isUnder500
                       ? '🎉 Fantastic! You qualify for our reduced delivery charge: FREE (₹0) delivery on WhatsApp orders!'
+                      : distanceResult.km <= 6
+                      ? '✅ You are within our 500m–6km zone (₹30 delivery fee). Order your favorite dishes online via WhatsApp!'
                       : distanceResult.isWithin10km
-                      ? '✅ You are within our 10 km delivery radius! Order your favorite dishes online via WhatsApp.'
-                      : '⚠️ You are beyond our 10 km delivery radius. We recommend takeaway parcel or calling us directly for bulk function orders.'}
+                      ? '✅ You are within our 6km–10km zone (₹40 delivery fee). Order your favorite dishes online via WhatsApp!'
+                      : '🚫 You are beyond our 10 km delivery radius. Online delivery orders cannot be delivered above 10 km. Please select Takeaway / Counter Pickup to place your order!'}
                   </p>
                 </div>
               )}

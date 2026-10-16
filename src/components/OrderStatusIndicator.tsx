@@ -192,7 +192,7 @@ export const OrderStatusIndicator: React.FC<OrderStatusIndicatorProps> = ({
               {currentType === 'delivery' && (
                 <div className="mt-3 pt-2.5 border-t border-neutral-800/80 flex items-center gap-1.5 text-[10px] text-emerald-400 font-semibold">
                   <Sparkles className="w-3 h-3 shrink-0" />
-                  <span>Free delivery under 500m & on orders above ₹499!</span>
+                  <span>0–500m: FREE (₹0) | 500m–6km: ₹30 | 6km–10km: ₹40</span>
                 </div>
               )}
             </div>
@@ -241,20 +241,39 @@ export const OrderStatusIndicator: React.FC<OrderStatusIndicatorProps> = ({
                     <p className="leading-relaxed">
                       Delivery is available up to <strong className="text-white">10 km radius</strong> from{' '}
                       <span className="text-amber-400 font-semibold">Pachikapalem</span> (Opposite DCCB Bank, Tirupati Road).
-                      Below 500 meters has a <strong className="text-emerald-400">special reduced delivery charge (FREE ₹0)</strong>.
+                      Delivery charges: <strong className="text-emerald-400">0–500m: FREE (₹0)</strong> • <strong className="text-amber-300">500m–6km: ₹30</strong> • <strong className="text-amber-300">6km–10km: ₹40</strong>.
+                      Locations <span className="text-rose-400 font-semibold">above 10 km cannot be delivered</span> via online order.
                     </p>
                     {quickLocation ? (
-                      <div className="p-2 rounded-lg bg-emerald-950/70 border border-emerald-800/60 text-emerald-300 text-xs flex items-center justify-between gap-2">
+                      <div className={`p-2 rounded-lg text-xs flex items-center justify-between gap-2 ${
+                        !quickLocation.isWithin10km || quickLocation.distanceKm > 10
+                          ? 'bg-rose-950/80 border border-rose-800/80 text-rose-200'
+                          : quickLocation.isUnder500m
+                          ? 'bg-emerald-950/70 border border-emerald-800/60 text-emerald-300'
+                          : 'bg-blue-950/70 border border-blue-800/60 text-blue-200'
+                      }`}>
                         <div className="flex items-center gap-1.5">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                          {!quickLocation.isWithin10km || quickLocation.distanceKm > 10 ? (
+                            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                          )}
                           <span>
                             Auto-detected: <strong>{quickLocation.distanceMeters < 1000 ? `${quickLocation.distanceMeters}m` : `${quickLocation.distanceKm.toFixed(1)} km`}</strong> away.
-                            {quickLocation.isUnder500m ? ' (Reduced Fee: FREE ₹0 applied!)' : ' (Within 10 km zone)'}
+                            {!quickLocation.isWithin10km || quickLocation.distanceKm > 10
+                              ? ' (🚫 Unable to deliver above 10 km - Takeaway only)'
+                              : quickLocation.isUnder500m
+                              ? ' (Reduced Fee: FREE ₹0 applied!)'
+                              : ` (Delivery Fee: ₹${quickLocation.calculatedFee} applied)`}
                           </span>
                         </div>
                         <button
                           onClick={onOpenCart}
-                          className="text-[10px] bg-emerald-500 text-neutral-950 font-bold px-2 py-0.5 rounded cursor-pointer hover:bg-emerald-400"
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded cursor-pointer ${
+                            !quickLocation.isWithin10km || quickLocation.distanceKm > 10
+                              ? 'bg-rose-500 hover:bg-rose-400 text-white'
+                              : 'bg-emerald-500 hover:bg-emerald-400 text-neutral-950'
+                          }`}
                         >
                           Fill In Cart
                         </button>
@@ -357,7 +376,7 @@ export const OrderStatusIndicator: React.FC<OrderStatusIndicatorProps> = ({
         {activeOrderType === 'delivery' ? (
           <p>
             🛵 <strong>Delivery Time:</strong> 25–35 mins within 10 km from Pachikapalem hub.{' '}
-            <span className="text-emerald-400 font-semibold">FREE delivery below 500m!</span>
+            <span className="text-emerald-400 font-semibold">0–500m: FREE | 500m–6km: ₹30 | 6km–10km: ₹40</span>
           </p>
         ) : activeOrderType === 'takeaway' ? (
           <p>
