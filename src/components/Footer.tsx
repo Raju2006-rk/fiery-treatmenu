@@ -133,7 +133,7 @@ export const Footer: React.FC<FooterProps> = ({ onOpenAdmin }) => {
               >
                 <div className="flex items-center gap-2">
                   <Settings className="w-4 h-4 text-amber-400 group-hover:rotate-45 transition-transform" />
-                  <span>Owner Settings & CMS</span>
+                  <span>Owner & Staff Panel (CMS & KDS)</span>
                 </div>
                 <span className="p-1 rounded bg-amber-500/20 text-amber-400">
                   <Lock className="w-3 h-3" />

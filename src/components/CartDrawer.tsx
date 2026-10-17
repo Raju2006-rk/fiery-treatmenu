@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { CartItem, OrderType, OrderDetails } from '../types';
 import { RESTAURANT_INFO } from '../data/menuData';
 import { 
   getAccessToken, 
-  findOrCreateOrdersSpreadsheet, 
-  appendOrderToGoogleSheet 
+  pushOrderToAllGoogleChannels 
 } from '../services/googleWorkspace';
 import { 
   calculateDistanceKm, 
@@ -36,7 +35,10 @@ import {
   CheckCircle2,
   Sparkles,
   Loader2,
-  Check
+  Check,
+  Lock,
+  Unlock,
+  ShieldAlert
 } from 'lucide-react';
 
 interface CartDrawerProps {
@@ -82,12 +84,18 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     }
   }, [externalOrderType]);
 
-  // Sync external detected location if provided
+  // Sync external detected location if provided and calculate distance to restaurant
   useEffect(() => {
     if (externalLocation) {
-      setDetectedDistanceKm(externalLocation.distanceKm);
+      const calculatedDist = calculateDistanceKm(
+        externalLocation.latitude,
+        externalLocation.longitude,
+        RESTAURANT_COORDINATES.latitude,
+        RESTAURANT_COORDINATES.longitude
+      );
+      setDetectedDistanceKm(calculatedDist);
       setUserCoords({ lat: externalLocation.latitude, lng: externalLocation.longitude });
-      setSelectedBracket(externalLocation.bracket);
+      setSelectedBracket(calculatedDist > RESTAURANT_COORDINATES.maxDeliveryRadiusKm ? 'above_10km' : externalLocation.bracket);
       if (!deliveryAddress || addressAutoFilled) {
         setDeliveryAddress(externalLocation.suggestedAddress);
         setAddressAutoFilled(true);
@@ -103,6 +111,41 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const [locationStatus, setLocationStatus] = useState<string>('');
   const [locationError, setLocationError] = useState<string>('');
 
+  // Explicit radius-check logic: calculates distance between detected user location and restaurant
+  const calculatedDistanceKm: number | null = useMemo(() => {
+    if (userCoords) {
+      return calculateDistanceKm(
+        userCoords.lat,
+        userCoords.lng,
+        RESTAURANT_COORDINATES.latitude,
+        RESTAURANT_COORDINATES.longitude
+      );
+    }
+    if (detectedDistanceKm !== null) {
+      return detectedDistanceKm;
+    }
+    return null;
+  }, [userCoords, detectedDistanceKm]);
+
+  // Check if distance exceeds 10km radius
+  const isDistanceExceeding10km = useMemo(() => {
+    if (calculatedDistanceKm !== null) {
+      return calculatedDistanceKm > RESTAURANT_COORDINATES.maxDeliveryRadiusKm;
+    }
+    return selectedBracket === 'above_10km';
+  }, [calculatedDistanceKm, selectedBracket]);
+
+  // Customer is out of 10 km radius: hide distance options and lock until auto-detected below 10 km
+  const isCustomerOutOfRadius = useMemo(() => {
+    if (calculatedDistanceKm !== null) {
+      return calculatedDistanceKm > RESTAURANT_COORDINATES.maxDeliveryRadiusKm;
+    }
+    if (externalLocation && !externalLocation.isWithin10km) {
+      return true;
+    }
+    return selectedBracket === 'above_10km';
+  }, [calculatedDistanceKm, externalLocation, selectedBracket]);
+
   if (!isOpen) return null;
 
   const subtotal = cart.reduce(
@@ -111,12 +154,12 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   );
 
   // Compute active distance info (only 0-500m is free, 500m-6km: ₹30, 6km-10km: ₹40, >10km: unable to deliver)
-  const effectiveDistanceKm = detectedDistanceKm !== null 
-    ? detectedDistanceKm 
-    : (DISTANCE_PRESETS.find(p => p.id === selectedBracket)?.typicalKm ?? 0.35);
+  const effectiveDistanceKm = calculatedDistanceKm !== null 
+    ? calculatedDistanceKm 
+    : (selectedBracket === 'above_10km' ? 12.0 : (DISTANCE_PRESETS.find(p => p.id === selectedBracket)?.typicalKm ?? 0.35));
 
   const deliveryInfo: DistanceInfo = evaluateDeliveryDistance(effectiveDistanceKm);
-  const isDeliveryAbove10km = orderType === 'delivery' && (!deliveryInfo.isWithin10km || effectiveDistanceKm > 10 || selectedBracket === 'above_10km');
+  const isDeliveryAbove10km = orderType === 'delivery' && (isDistanceExceeding10km || !deliveryInfo.isWithin10km || effectiveDistanceKm > RESTAURANT_COORDINATES.maxDeliveryRadiusKm);
   const deliveryFee = orderType === 'delivery' ? (isDeliveryAbove10km ? 0 : deliveryInfo.calculatedFee) : 0;
   const grandTotal = subtotal + deliveryFee;
 
@@ -127,42 +170,57 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const handleDetectLocation = async () => {
     setIsLocating(true);
     setLocationError('');
-    setLocationStatus('Pinpointing your location via GPS & resolving address...');
+    setLocationStatus('Pinpointing your location via GPS & calculating distance to restaurant...');
 
     try {
       const result = await autoDetectAndSelectLocation();
-      const distKm = result.distanceKm;
-      const distMeters = result.distanceMeters;
+      // Explicit radius-check calculation between detected user location and restaurant
+      const distKm = calculateDistanceKm(
+        result.latitude,
+        result.longitude,
+        RESTAURANT_COORDINATES.latitude,
+        RESTAURANT_COORDINATES.longitude
+      );
+      const distMeters = Math.round(distKm * 1000);
 
       setDetectedDistanceKm(distKm);
       setUserCoords({ lat: result.latitude, lng: result.longitude });
-      setSelectedBracket(result.bracket);
+      setSelectedBracket(distKm > RESTAURANT_COORDINATES.maxDeliveryRadiusKm ? 'above_10km' : result.bracket);
       
-      // Auto-fill delivery address with resolved location and landmark!
+      // Auto-fill delivery address with resolved location and landmark
       setDeliveryAddress(result.suggestedAddress);
       setAddressAutoFilled(true);
 
-      if (distMeters <= RESTAURANT_COORDINATES.reducedFeeThresholdMeters) {
-        setLocationStatus(`📍 Located & filled! You are only ${distMeters}m away (< 500m). Reduced delivery charge (FREE ₹0) automatically applied!`);
-      } else if (distKm <= 6) {
-        setLocationStatus(`📍 Located & filled! ${distKm.toFixed(2)} km away (500m–6km zone). Delivery charge: ₹30 applied. Address auto-filled.`);
-      } else if (distKm <= 10) {
-        setLocationStatus(`📍 Located & filled! ${distKm.toFixed(2)} km away (6km–10km zone). Delivery charge: ₹40 applied. Address auto-filled.`);
+      if (distKm <= RESTAURANT_COORDINATES.maxDeliveryRadiusKm) {
+        if (distMeters <= RESTAURANT_COORDINATES.reducedFeeThresholdMeters) {
+          setLocationStatus(`📍 Located! You are ${distMeters}m away (< 500m). Free delivery (₹0) automatically applied!`);
+        } else if (distKm <= 6) {
+          setLocationStatus(`📍 Located! ${distKm.toFixed(2)} km away (500m–6km zone). Delivery fee: ₹30 applied.`);
+        } else {
+          setLocationStatus(`📍 Located! ${distKm.toFixed(2)} km away (6km–10km zone). Delivery fee: ₹40 applied.`);
+        }
       } else {
-        setLocationStatus(`🚫 Unable to Deliver Above 10 km: You are ${distKm.toFixed(2)} km away. Online WhatsApp delivery is not available beyond 10 km. Please select Takeaway (Counter Pickup).`);
+        setLocationStatus(`🚫 Delivery unavailable: Distance is ${distKm.toFixed(2)} km, which exceeds our 10 km delivery radius. Delivery options are hidden and checkout is restricted.`);
       }
 
       if (onLocationDetected) {
-        onLocationDetected(result);
+        onLocationDetected({
+          ...result,
+          distanceKm: distKm,
+          distanceMeters: distMeters,
+          bracket: distKm > RESTAURANT_COORDINATES.maxDeliveryRadiusKm ? 'above_10km' : result.bracket,
+          isWithin10km: distKm <= RESTAURANT_COORDINATES.maxDeliveryRadiusKm,
+          isDeliveryAvailable: distKm <= RESTAURANT_COORDINATES.maxDeliveryRadiusKm
+        });
       }
     } catch (error: unknown) {
-      let errorMsg = 'Could not access GPS location. Please select your distance bracket below.';
+      let errorMsg = 'Could not access GPS location. Please allow browser location permissions to verify delivery radius.';
       if (error && typeof error === 'object' && 'code' in error) {
         const geoErr = error as { code: number };
         if (geoErr.code === 1) {
-          errorMsg = 'Location permission was denied. Please select your approximate distance below.';
+          errorMsg = 'Location permission was denied. Please allow location access in your browser.';
         } else if (geoErr.code === 2) {
-          errorMsg = 'GPS location is currently unavailable. Please pick your distance bracket below.';
+          errorMsg = 'GPS location is currently unavailable. Please turn on device location services.';
         }
       } else if (error instanceof Error) {
         errorMsg = error.message;
@@ -279,16 +337,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
     onOrderPlaced?.(newOrder);
 
-    // Auto-save to Google Sheet if user is authenticated with Google Workspace
-    getAccessToken().then(async (token) => {
-      if (token) {
-        try {
-          const sheet = await findOrCreateOrdersSpreadsheet(token);
-          await appendOrderToGoogleSheet(token, sheet.id, newOrder);
-        } catch (e) {
-          console.error('Auto-append to Google Sheet failed:', e);
-        }
-      }
+    // Auto-save to Google Sheet & Google Apps Script Web App
+    pushOrderToAllGoogleChannels(newOrder).catch((e) => {
+      console.error('Google Sheet / Apps Script auto-sync failed:', e);
     });
 
     const url = `https://wa.me/${RESTAURANT_INFO.whatsappNumber}?text=${encoded}`;
@@ -360,17 +411,27 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     <button
                       type="button"
                       onClick={() => {
+                        if (isDistanceExceeding10km) {
+                          return;
+                        }
                         setOrderType('delivery');
                         onExternalOrderTypeChange?.('delivery');
                       }}
-                      className={`py-2 rounded-lg font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
-                        orderType === 'delivery'
-                          ? 'bg-red-600 text-white shadow-md'
-                          : 'text-neutral-400 hover:text-white'
+                      disabled={isDistanceExceeding10km}
+                      className={`py-2 rounded-lg font-bold flex flex-col items-center gap-1 transition-all ${
+                        isDistanceExceeding10km
+                          ? 'opacity-40 cursor-not-allowed text-neutral-500 bg-neutral-950/50'
+                          : orderType === 'delivery'
+                          ? 'bg-red-600 text-white shadow-md cursor-pointer'
+                          : 'text-neutral-400 hover:text-white cursor-pointer'
                       }`}
+                      title={isDistanceExceeding10km ? 'Delivery unavailable for your location (>10 km)' : 'Home Delivery'}
                     >
-                      <Truck className="w-3.5 h-3.5" />
-                      <span>Delivery</span>
+                      <div className="flex items-center gap-1">
+                        <Truck className="w-3.5 h-3.5" />
+                        {isDistanceExceeding10km && <Lock className="w-2.5 h-2.5 text-rose-400" />}
+                      </div>
+                      <span>Delivery {isDistanceExceeding10km ? '(>10km)' : ''}</span>
                     </button>
                     <button
                       type="button"
@@ -610,71 +671,148 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         )}
                       </div>
 
-                      {/* Manual Distance Range Picker */}
-                      <div className="space-y-1.5 pt-1">
+                      {/* Manual Distance Range Picker with 10 KM Lock & Unlock */}
+                      <div className="space-y-2 pt-1">
                         <div className="flex items-center justify-between">
-                          <label className="text-[10px] text-neutral-400 uppercase font-bold block">
-                            Or Select Distance from Pachikapalem:
+                          <label className="text-[10px] text-neutral-400 uppercase font-bold flex items-center gap-1.5">
+                            {isCustomerOutOfRadius ? (
+                              <>
+                                <Lock className="w-3 h-3 text-rose-500" />
+                                <span className="text-rose-400">Distance Options Locked (&gt;10 km)</span>
+                              </>
+                            ) : (
+                              <>
+                                <Unlock className="w-3 h-3 text-emerald-400" />
+                                <span>Select Distance from Pachikapalem:</span>
+                              </>
+                            )}
                           </label>
-                          <span className="text-[10px] text-neutral-500">Max limit: 10 km</span>
+                          <span className={`text-[10px] font-semibold ${isCustomerOutOfRadius ? 'text-rose-400' : 'text-neutral-500'}`}>
+                            Max limit: 10 km
+                          </span>
                         </div>
-                        <div className="space-y-1">
-                          {DISTANCE_PRESETS.map((preset) => {
-                            const isSelected = selectedBracket === preset.id && detectedDistanceKm === null;
-                            const isAutoActive = selectedBracket === preset.id && detectedDistanceKm !== null;
-                            const isUnder500 = preset.id === 'under_500m';
-                            const isOutOfRange = preset.id === 'above_10km';
 
-                            return (
+                        {/* If customer is OUT of 10 km radius: Don't show the 3 distance options, lock completely */}
+                        {isCustomerOutOfRadius ? (
+                          <div className="p-3.5 rounded-xl bg-neutral-950 border border-rose-800/80 space-y-3 shadow-lg">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 text-rose-400 font-bold text-xs sm:text-sm">
+                                <Lock className="w-4 h-4 text-rose-500 shrink-0" />
+                                <span>Delivery Locked: Out of 10 KM Radius</span>
+                              </div>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800/80">
+                                🔒 Locked
+                              </span>
+                            </div>
+
+                            <p className="text-[11px] leading-relaxed text-neutral-300">
+                              The 3 delivery distance options from Pachikapalem are <strong className="text-rose-300">locked and hidden</strong> because your customer location is beyond our 10 km service radius {detectedDistanceKm !== null ? `(${detectedDistanceKm.toFixed(2)} km away)` : '(more than 10 km away)'}.
+                            </p>
+
+                            <div className="p-2.5 rounded-lg bg-rose-950/70 border border-rose-800/80 text-[11px] text-rose-200 flex items-start gap-2">
+                              <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                              <div className="space-y-0.5">
+                                <span className="font-bold text-rose-300 block">How to Unlock:</span>
+                                <span>
+                                  Only unlocks if customer is in radius <strong>below 10 km</strong> using <strong>&quot;Auto-Detect & Fill Location (GPS)&quot;</strong> above.
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-col sm:flex-row gap-2 pt-1">
                               <button
-                                key={preset.id}
+                                type="button"
+                                onClick={handleDetectLocation}
+                                disabled={isLocating}
+                                className="flex-1 py-2 px-3 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-neutral-950 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow disabled:opacity-50"
+                              >
+                                {isLocating ? (
+                                  <>
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Verifying GPS...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Compass className="w-3.5 h-3.5" />
+                                    <span>Auto-Detect & Unlock</span>
+                                  </>
+                                )}
+                              </button>
+
+                              <button
                                 type="button"
                                 onClick={() => {
-                                  setSelectedBracket(preset.id);
-                                  setDetectedDistanceKm(null);
-                                  setLocationStatus('');
-                                  setLocationError('');
+                                  setOrderType('takeaway');
+                                  onExternalOrderTypeChange?.('takeaway');
                                 }}
-                                className={`w-full p-2 rounded-lg text-left text-xs transition-all border flex items-center justify-between cursor-pointer ${
-                                  isSelected || isAutoActive
-                                    ? isUnder500
-                                      ? 'bg-emerald-950/60 border-emerald-500 text-white font-semibold'
-                                      : isOutOfRange
-                                      ? 'bg-rose-950/60 border-rose-500 text-white font-semibold'
-                                      : 'bg-amber-950/50 border-amber-500 text-white font-semibold'
-                                    : 'bg-neutral-950 hover:bg-neutral-800/60 border-neutral-800 text-neutral-300'
-                                }`}
+                                className="flex-1 py-2 px-3 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-amber-400 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                               >
-                                <div>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-bold">{preset.label}</span>
-                                    {isUnder500 && (
-                                      <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 text-[9px] font-bold">
-                                        FREE (₹0)
-                                      </span>
-                                    )}
-                                    {isAutoActive && (
-                                      <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[9px] font-bold">
-                                        GPS Detected
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className="text-[10px] text-neutral-400 block">
-                                    {preset.subLabel}
-                                  </span>
-                                </div>
-                                <span className={`text-[11px] font-bold shrink-0 ml-2 ${
-                                  isUnder500 ? 'text-emerald-400' : isOutOfRange ? 'text-rose-400 font-bold' : 'text-neutral-300 font-semibold'
-                                }`}>
-                                  {preset.feeNotice}
-                                </span>
+                                <ShoppingBag className="w-3.5 h-3.5" />
+                                <span>Switch to Takeaway</span>
                               </button>
-                            );
-                          })}
-                        </div>
+                            </div>
+                          </div>
+                        ) : (
+                          /* Within 10 km radius: Show the 3 distance options */
+                          <div className="space-y-1">
+                            {DISTANCE_PRESETS.filter((p) => p.id !== 'above_10km').map((preset) => {
+                              const isSelected = selectedBracket === preset.id && detectedDistanceKm === null;
+                              const isAutoActive = selectedBracket === preset.id && detectedDistanceKm !== null;
+                              const isUnder500 = preset.id === 'under_500m';
+
+                              return (
+                                <button
+                                  key={preset.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedBracket(preset.id);
+                                    if (preset.id === 'above_10km') {
+                                      setDetectedDistanceKm(12.0);
+                                    } else {
+                                      setDetectedDistanceKm(null);
+                                    }
+                                    setLocationStatus('');
+                                    setLocationError('');
+                                  }}
+                                  className={`w-full p-2 rounded-lg text-left text-xs transition-all border flex items-center justify-between cursor-pointer ${
+                                    isSelected || isAutoActive
+                                      ? isUnder500
+                                        ? 'bg-emerald-950/60 border-emerald-500 text-white font-semibold'
+                                        : 'bg-amber-950/50 border-amber-500 text-white font-semibold'
+                                      : 'bg-neutral-950 hover:bg-neutral-800/60 border-neutral-800 text-neutral-300'
+                                  }`}
+                                >
+                                  <div>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-bold">{preset.label}</span>
+                                      {isUnder500 && (
+                                        <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 text-[9px] font-bold">
+                                          FREE (₹0)
+                                        </span>
+                                      )}
+                                      {isAutoActive && (
+                                        <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[9px] font-bold">
+                                          GPS Detected
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-[10px] text-neutral-400 block">
+                                      {preset.subLabel}
+                                    </span>
+                                  </div>
+                                  <span className={`text-[11px] font-bold shrink-0 ml-2 ${
+                                    isUnder500 ? 'text-emerald-400' : 'text-neutral-300 font-semibold'
+                                  }`}>
+                                    {preset.feeNotice}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
 
                         {/* Unable to Deliver Alert if customer is > 10 km */}
-                        {isDeliveryAbove10km && (
+                        {isDeliveryAbove10km && !isCustomerOutOfRadius && (
                           <div className="p-3 rounded-xl bg-rose-950/90 border border-rose-600/80 text-rose-200 text-xs space-y-1.5 shadow-lg mt-2 animate-fadeIn">
                             <div className="flex items-center gap-1.5 font-bold text-rose-300 text-xs sm:text-sm">
                               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />

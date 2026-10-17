@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Lock, KeyRound, X, AlertCircle, CheckCircle2, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { Lock, KeyRound, X, AlertCircle, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { verifyOwnerPassword, isUsingCustomPassword } from '../utils/auth';
 
 interface OwnerAuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
 }
-
-const OWNER_PIN = '8143';
 
 export const OwnerAuthModal: React.FC<OwnerAuthModalProps> = ({
   isOpen,
@@ -19,6 +18,8 @@ export const OwnerAuthModal: React.FC<OwnerAuthModalProps> = ({
   const [error, setError] = useState(false);
   const [shake, setShake] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const customPwdSet = isUsingCustomPassword();
 
   useEffect(() => {
     if (isOpen) {
@@ -36,7 +37,7 @@ export const OwnerAuthModal: React.FC<OwnerAuthModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password.trim() === OWNER_PIN) {
+    if (verifyOwnerPassword(password)) {
       setError(false);
       onSuccess();
       onClose();
@@ -98,16 +99,14 @@ export const OwnerAuthModal: React.FC<OwnerAuthModalProps> = ({
               <input
                 ref={inputRef}
                 type={showPassword ? 'text' : 'password'}
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={8}
+                maxLength={32}
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
                   if (error) setError(false);
                 }}
-                placeholder="Enter password..."
-                className={`w-full bg-neutral-950 border rounded-xl pl-10 pr-11 py-3 text-sm text-white placeholder-neutral-600 tracking-widest font-mono focus:outline-none transition-colors ${
+                placeholder="Enter owner password..."
+                className={`w-full bg-neutral-950 border rounded-xl pl-10 pr-11 py-3 text-sm text-white placeholder-neutral-600 tracking-wider font-mono focus:outline-none transition-colors ${
                   error
                     ? 'border-rose-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
                     : 'border-neutral-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500'
@@ -118,7 +117,7 @@ export const OwnerAuthModal: React.FC<OwnerAuthModalProps> = ({
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-neutral-400 hover:text-neutral-200"
+                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-neutral-400 hover:text-neutral-200 cursor-pointer"
                 tabIndex={-1}
               >
                 {showPassword ? (
@@ -132,7 +131,11 @@ export const OwnerAuthModal: React.FC<OwnerAuthModalProps> = ({
             {error && (
               <div className="flex items-center gap-1.5 text-xs text-rose-400 pt-1">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                <span>Incorrect password. Only owner with password 8143 can access.</span>
+                <span>
+                  {customPwdSet
+                    ? 'Incorrect password. Please enter the current owner password.'
+                    : 'Incorrect password. Default owner PIN is 8143.'}
+                </span>
               </div>
             )}
           </div>

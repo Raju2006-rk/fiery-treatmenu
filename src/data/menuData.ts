@@ -12,7 +12,7 @@ import imgSplVegBurger from '../assets/images/regenerated_image_1789390425075.jp
 import imgCrispyChickenBurger from '../assets/images/regenerated_image_1789390431304.jpg';
 import imgTandoorBurger from '../assets/images/tandoori_burger_1789392468702.jpg';
 import imgChickenMomos from '../assets/images/regenerated_image_1789390818101.jpg';
-import imgCrispyFriedChicken from '../assets/images/crispy_fried_chicken_toi.jpg';
+import imgCrispyFriedChicken from '../assets/images/crispy_fried_chicken_1789393849879.jpg';
 
 export const CATEGORIES: CategoryMeta[] = [
   {

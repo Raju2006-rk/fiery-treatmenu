@@ -29,10 +29,21 @@ import {
   Sparkles,
   Filter,
   CheckCircle2,
-  ChevronRight
+  ChevronRight,
+  EyeOff,
+  Lock,
+  KeyRound,
+  ShieldCheck
 } from 'lucide-react';
 import { OrderDetails } from '../types';
 import { GoogleWorkspacePanel } from './GoogleWorkspacePanel';
+import { 
+  verifyOwnerPassword, 
+  setOwnerPassword, 
+  resetOwnerPasswordToDefault, 
+  isUsingCustomPassword, 
+  DEFAULT_OWNER_PASSWORD 
+} from '../utils/auth';
 
 interface AdminPanelModalProps {
   isOpen: boolean;
@@ -55,7 +66,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   onResetMenu,
   orders = [],
 }) => {
-  const [activeTab, setActiveTab] = useState<'menu' | 'google_workspace'>('menu');
+  const [activeTab, setActiveTab] = useState<'menu' | 'google_workspace' | 'security'>('menu');
   const [search, setSearch] = useState('');
   const [selectedCat, setSelectedCat] = useState<string>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -63,6 +74,14 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [showAddForm, setShowAddForm] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletedNotification, setDeletedNotification] = useState<string>('');
+
+  // Password Change State for Owner Settings
+  const [currPassword, setCurrPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPasswordInputs, setShowPasswordInputs] = useState(false);
+  const [pwdMessage, setPwdMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [hasCustomPwd, setHasCustomPwd] = useState(() => isUsingCustomPassword());
 
   // Owner Dishes Navigation Extension States
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
@@ -222,6 +241,66 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     downloadAnchor.remove();
   };
 
+  const handleChangePassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwdMessage(null);
+
+    if (!verifyOwnerPassword(currPassword)) {
+      setPwdMessage({
+        type: 'error',
+        text: 'Current owner password is incorrect. Please check your existing password and retry.'
+      });
+      return;
+    }
+
+    if (newPassword.trim().length < 4) {
+      setPwdMessage({
+        type: 'error',
+        text: 'New password must be at least 4 characters long.'
+      });
+      return;
+    }
+
+    if (newPassword.trim() !== confirmPassword.trim()) {
+      setPwdMessage({
+        type: 'error',
+        text: 'New password and confirmation password do not match.'
+      });
+      return;
+    }
+
+    const success = setOwnerPassword(newPassword.trim());
+    if (success) {
+      setHasCustomPwd(true);
+      setCurrPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPwdMessage({
+        type: 'success',
+        text: 'Owner password changed successfully! Your new password will be required next time you access Owner Settings.'
+      });
+    } else {
+      setPwdMessage({
+        type: 'error',
+        text: 'Failed to update owner password. Please try again.'
+      });
+    }
+  };
+
+  const handleResetPassword = () => {
+    if (window.confirm('Are you sure you want to reset the owner password back to default (8143)?')) {
+      resetOwnerPasswordToDefault();
+      setHasCustomPwd(false);
+      setCurrPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPwdMessage({
+        type: 'success',
+        text: 'Owner password has been reset to default (8143).'
+      });
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6">
       <div className="relative w-full max-w-4xl bg-neutral-900 border border-neutral-800 rounded-3xl p-5 sm:p-7 shadow-2xl text-white space-y-6 max-h-[92vh] flex flex-col">
@@ -270,8 +349,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
           </div>
         </div>
 
-        {/* Navigation Tabs (Menu CMS vs Google Workspace Sync) */}
-        <div className="flex items-center gap-2 border-b border-neutral-800 pb-2 shrink-0">
+        {/* Navigation Tabs (Menu CMS vs Google Workspace Sync vs Owner Security) */}
+        <div className="flex items-center gap-2 border-b border-neutral-800 pb-2 shrink-0 flex-wrap">
           <button
             type="button"
             onClick={() => setActiveTab('menu')}
@@ -300,11 +379,207 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
               Workspace
             </span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('security');
+              setPwdMessage(null);
+            }}
+            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              activeTab === 'security'
+                ? 'bg-red-600 text-white shadow-md'
+                : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-300'
+            }`}
+          >
+            <KeyRound className="w-3.5 h-3.5" />
+            <span>Owner Security & Password</span>
+            {hasCustomPwd ? (
+              <span className="px-1.5 py-0.2 rounded-full bg-emerald-950 text-emerald-300 text-[9px] font-bold border border-emerald-700/60">
+                Custom
+              </span>
+            ) : (
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-950 text-amber-300 text-[9px] font-bold border border-amber-700/60">
+                Default 8143
+              </span>
+            )}
+          </button>
         </div>
 
         {activeTab === 'google_workspace' ? (
           <div className="flex-1 overflow-y-auto pr-1">
             <GoogleWorkspacePanel orders={orders} />
+          </div>
+        ) : activeTab === 'security' ? (
+          <div className="flex-1 overflow-y-auto pr-1 space-y-5">
+            {/* Security Status Banner */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-neutral-950 border border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500/20 to-red-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0 shadow-inner">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-display font-bold text-base sm:text-lg text-white">
+                      Owner Password & Security Access
+                    </h3>
+                    {hasCustomPwd ? (
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-700/80 text-emerald-300 text-[10px] font-bold flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Custom Password Protected
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-950/80 border border-amber-700/80 text-amber-300 text-[10px] font-bold flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" /> Using Default PIN (8143)
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-neutral-400 mt-0.5">
+                    This password controls access to owner settings, menu pricing updates, stock control, and Google Workspace cloud sync.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Notification messages */}
+            {pwdMessage && (
+              <div
+                className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 transition-all ${
+                  pwdMessage.type === 'success'
+                    ? 'bg-emerald-950/90 border-emerald-700 text-emerald-200'
+                    : 'bg-rose-950/90 border-rose-700 text-rose-200'
+                }`}
+              >
+                {pwdMessage.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                )}
+                <div className="flex-1">
+                  <p className="font-bold">{pwdMessage.type === 'success' ? 'Success' : 'Error'}</p>
+                  <p className="mt-0.5 leading-relaxed">{pwdMessage.text}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPwdMessage(null)}
+                  className="p-1 text-neutral-400 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Change Password Card */}
+            <div className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-4">
+              <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="w-4 h-4 text-amber-400" />
+                  <h4 className="font-bold text-sm text-white">Change Owner Password</h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordInputs(!showPasswordInputs)}
+                  className="text-xs text-neutral-400 hover:text-amber-400 flex items-center gap-1.5 cursor-pointer"
+                >
+                  {showPasswordInputs ? (
+                    <>
+                      <EyeOff className="w-3.5 h-3.5" />
+                      <span>Hide characters</span>
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Show characters</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <form onSubmit={handleChangePassword} className="space-y-4 max-w-xl">
+                <div>
+                  <label className="text-xs text-neutral-300 font-semibold block mb-1">
+                    Current Owner Password
+                  </label>
+                  <input
+                    type={showPasswordInputs ? 'text' : 'password'}
+                    required
+                    value={currPassword}
+                    onChange={(e) => setCurrPassword(e.target.value)}
+                    placeholder={hasCustomPwd ? 'Enter your current password...' : 'Enter default PIN (8143)...'}
+                    className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 font-mono tracking-wider focus:outline-none focus:border-amber-500"
+                  />
+                  {!hasCustomPwd && (
+                    <p className="text-[10px] text-neutral-500 mt-1">
+                      Current default password is <strong className="text-amber-400 font-mono">8143</strong>
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-neutral-300 font-semibold block mb-1">
+                      New Password
+                    </label>
+                    <input
+                      type={showPasswordInputs ? 'text' : 'password'}
+                      required
+                      minLength={4}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="At least 4 characters..."
+                      className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 font-mono tracking-wider focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-neutral-300 font-semibold block mb-1">
+                      Confirm New Password
+                    </label>
+                    <input
+                      type={showPasswordInputs ? 'text' : 'password'}
+                      required
+                      minLength={4}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Repeat new password..."
+                      className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-500 font-mono tracking-wider focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 pt-2">
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-red-600 hover:from-amber-400 hover:to-red-500 text-neutral-950 font-bold text-xs shadow-md transition-all cursor-pointer flex items-center gap-2"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Save New Password</span>
+                  </button>
+
+                  {hasCustomPwd && (
+                    <button
+                      type="button"
+                      onClick={handleResetPassword}
+                      className="px-4 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white text-xs font-semibold transition-colors cursor-pointer"
+                    >
+                      Reset to Default (8143)
+                    </button>
+                  )}
+                </div>
+              </form>
+            </div>
+
+            {/* Quick Tips Box */}
+            <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-2 text-xs">
+              <div className="flex items-center gap-2 text-amber-400 font-bold">
+                <Sparkles className="w-4 h-4" />
+                <span>Security Guidelines</span>
+              </div>
+              <ul className="text-neutral-400 space-y-1 list-disc list-inside text-[11px] leading-relaxed">
+                <li>Your owner password is saved securely in your browser and takes effect immediately.</li>
+                <li>You will need this password every time you click <strong>Owner CMS / Staff Settings</strong> in the top navigation or footer.</li>
+                <li>If you ever forget your password, you can reset it here while authenticated or clear browser site data to restore the default (8143).</li>
+              </ul>
+            </div>
           </div>
         ) : (
           <>

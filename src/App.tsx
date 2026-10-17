@@ -6,9 +6,12 @@ import { initAuth } from './services/googleWorkspace';
 import { User } from 'firebase/auth';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
+import { SignatureFavourites } from './components/SignatureFavourites';
+import { SpecialOffersSection } from './components/SpecialOffersSection';
 import { BasmatiHighlight } from './components/BasmatiHighlight';
 import { CategoryNav } from './components/CategoryNav';
 import { MenuCard } from './components/MenuCard';
+import { AboutSection } from './components/AboutSection';
 import { CartDrawer } from './components/CartDrawer';
 import { OrderStatusIndicator } from './components/OrderStatusIndicator';
 import { AdminPanelModal } from './components/AdminPanelModal';
@@ -184,6 +187,18 @@ export default function App() {
     });
   };
 
+  const handleUpdateOrderStatus = (orderId: string, newStatus: OrderDetails['status']) => {
+    setOrders((prev) => {
+      const updated = prev.map((ord) => (ord.id === orderId ? { ...ord, status: newStatus } : ord));
+      try {
+        localStorage.setItem('firey_treat_orders_v1', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Error saving updated order status:', e);
+      }
+      return updated;
+    });
+  };
+
   // Order Type & Auto-detected location state (for Order Status indicator & CartDrawer)
   const [orderType, setOrderType] = useState<OrderType>('delivery');
   const [detectedLocation, setDetectedLocation] = useState<DetectedLocationResult | null>(null);
@@ -353,14 +368,27 @@ export default function App() {
         activeCategory={selectedCategory}
       />
 
-      {/* Hero Section with Customer 3D Showcase */}
+      {/* Hero Section with 3D Chicken Video & Interactive Model */}
       <Hero
         onExploreMenu={() => {
           const menuSection = document.getElementById('menu-section');
           if (menuSection) menuSection.scrollIntoView({ behavior: 'smooth' });
         }}
         onAddToCart={handleAddToCart}
+        onOpenCart={() => setIsCartOpen(true)}
       />
+
+      {/* Signature Favourites - Premium Dish Showcase */}
+      <SignatureFavourites
+        items={menuItems}
+        cartItemMap={cartItemMap}
+        onAddToCart={handleAddToCart}
+        onExploreMenu={() => {
+          const menuSection = document.getElementById('menu-section');
+          if (menuSection) menuSection.scrollIntoView({ behavior: 'smooth' });
+        }}
+      />
+
 
       {/* Dedicated Basmati Rice & Noodles Signboard Highlight */}
       <BasmatiHighlight
@@ -368,6 +396,14 @@ export default function App() {
         cartItemIds={cartItemMap}
         onAddToCart={handleAddToCart}
         onSelectCategory={(catId) => setSelectedCategory(catId as CategoryId)}
+      />
+
+      {/* Special Offers & Verified Policies */}
+      <SpecialOffersSection
+        onOpenMenu={() => {
+          const menuSection = document.getElementById('menu-section');
+          if (menuSection) menuSection.scrollIntoView({ behavior: 'smooth' });
+        }}
       />
 
       {/* Sticky Menu Category Navigation & Search */}
@@ -504,6 +540,9 @@ export default function App() {
 
       </main>
 
+      {/* About Fiery Treat Restaurant Section */}
+      <AboutSection />
+
       {/* Location, Timings & Party Catering Section */}
       <LocationAndContact />
 
@@ -577,6 +616,7 @@ export default function App() {
         onDeleteItem={handleDeleteMenuItem}
         onResetMenu={handleResetMenu}
         orders={orders}
+        onUpdateOrderStatus={handleUpdateOrderStatus}
       />
 
     </div>

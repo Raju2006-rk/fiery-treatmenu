@@ -261,7 +261,7 @@ export const OrderStatusIndicator: React.FC<OrderStatusIndicatorProps> = ({
                           <span>
                             Auto-detected: <strong>{quickLocation.distanceMeters < 1000 ? `${quickLocation.distanceMeters}m` : `${quickLocation.distanceKm.toFixed(1)} km`}</strong> away.
                             {!quickLocation.isWithin10km || quickLocation.distanceKm > 10
-                              ? ' (🚫 Unable to deliver above 10 km - Takeaway only)'
+                              ? ' (🚫 Above 10 km: Delivery options locked. Counter takeaway only.)'
                               : quickLocation.isUnder500m
                               ? ' (Reduced Fee: FREE ₹0 applied!)'
                               : ` (Delivery Fee: ₹${quickLocation.calculatedFee} applied)`}

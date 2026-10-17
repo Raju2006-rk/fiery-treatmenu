@@ -12,7 +12,7 @@ import {
   Truck
 } from 'lucide-react';
 import { RESTAURANT_INFO } from '../data/menuData';
-import imgCrispyFriedChicken from '../assets/images/crispy_fried_chicken_toi.jpg';
+import imgCrispyFriedChicken from '../assets/images/crispy_fried_chicken_1789393849879.jpg';
 
 interface HeroProps {
   onExploreMenu: () => void;
@@ -157,7 +157,7 @@ export const Hero: React.FC<HeroProps> = ({ onExploreMenu }) => {
                 <div className="absolute bottom-3 left-3 right-3 text-white pointer-events-none">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="font-bold text-base sm:text-lg">Signature Thunder Wings &amp; Chicken</p>
+                      <p className="font-bold text-base sm:text-lg">Fried Chicken</p>
                       <p className="text-xs text-neutral-300">1 / 2 / 4 / 8 / 10 Piece Buckets Available</p>
                     </div>
                     <span className="text-amber-400 font-bold text-sm bg-neutral-950/80 px-2.5 py-1 rounded-lg">
