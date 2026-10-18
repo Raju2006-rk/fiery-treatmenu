@@ -15,6 +15,10 @@ import {
   getAppsScriptUrl,
   setAppsScriptUrl,
   testAppsScriptConnection,
+  sendOrderToAppsScript,
+  DEFAULT_SPREADSHEET_ID,
+  DEFAULT_SPREADSHEET_URL,
+  DEFAULT_APPS_SCRIPT_URL,
   APPS_SCRIPT_TEMPLATE_CODE,
   APPS_SCRIPT_MANIFEST_CODE,
   SpreadsheetInfo
@@ -74,6 +78,7 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
   const [hasCopiedCode, setHasCopiedCode] = useState(false);
   const [scriptViewMode, setScriptViewMode] = useState<'code' | 'manifest'>('code');
   const [hasCopiedManifest, setHasCopiedManifest] = useState(false);
+  const [isSyncingViaScript, setIsSyncingViaScript] = useState(false);
 
   useEffect(() => {
     const unsubscribe = initAuth(
@@ -305,6 +310,33 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
       setScriptStatus(e?.message || 'Failed to connect to Google Apps Script.');
     } finally {
       setIsTestingScript(false);
+    }
+  };
+
+  // Push all existing orders in memory to Apps Script without requiring any login
+  const handleSyncAllOrdersViaAppsScript = async () => {
+    if (!orders || orders.length === 0) {
+      setScriptStatus('No orders currently saved in memory to sync.');
+      return;
+    }
+    const targetUrl = (appsScriptInput || getAppsScriptUrl()).trim();
+    if (!targetUrl) {
+      setScriptStatus('Please enter a valid Google Apps Script Web App URL first.');
+      return;
+    }
+    setIsSyncingViaScript(true);
+    setScriptStatus(`Transmitting ${orders.length} order(s) to owner Google Sheet via Apps Script...`);
+    try {
+      let count = 0;
+      for (const ord of orders) {
+        await sendOrderToAppsScript(targetUrl, ord);
+        count++;
+      }
+      setScriptStatus(`Successfully transmitted ${count} order(s) to Google Apps Script! Check your Google Sheet.`);
+    } catch (err: any) {
+      setScriptStatus(`Sync issue: ${err?.message || 'Check connection'}`);
+    } finally {
+      setIsSyncingViaScript(false);
     }
   };
 
@@ -557,6 +589,36 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
           </div>
         </div>
 
+        {/* Connected Owner Google Sheet Status Badge */}
+        <div className="p-3.5 rounded-xl bg-neutral-900 border border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-xs font-bold text-white">Live Owner Google Sheet Destination:</span>
+              <span className="px-2 py-0.5 rounded bg-emerald-950 border border-emerald-700/60 text-emerald-300 text-[10px] font-bold">
+                Auto-Sync Enabled
+              </span>
+            </div>
+            <p className="text-[11px] text-neutral-400">
+              Orders placed by any customer without logging in are sent directly to this sheet.
+            </p>
+            <p className="text-[11px] text-neutral-300 font-mono select-all">
+              ID: {DEFAULT_SPREADSHEET_ID}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <a
+              href={DEFAULT_SPREADSHEET_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition-colors"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>Open Google Sheet</span>
+            </a>
+          </div>
+        </div>
+
         <div className="space-y-2">
           <label className="text-[11px] text-neutral-400 font-medium block">
             Google Apps Script Web App URL:
@@ -569,7 +631,7 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
               placeholder="https://script.google.com/macros/s/AKfycb.../exec"
               className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-amber-500 font-mono"
             />
-            <div className="flex gap-2 shrink-0">
+            <div className="flex gap-2 shrink-0 flex-wrap">
               <button
                 type="button"
                 onClick={handleSaveAppsScriptUrl}
@@ -590,6 +652,20 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
                   <Send className="w-3.5 h-3.5" />
                 )}
                 <span>Test Connection</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleSyncAllOrdersViaAppsScript}
+                disabled={isSyncingViaScript || orders.length === 0}
+                className="px-3.5 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-amber-300 font-bold text-xs border border-amber-500/30 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                title="Push all saved orders to the sheet right now via Apps Script"
+              >
+                {isSyncingViaScript ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5" />
+                )}
+                <span>Sync Stored ({orders.length})</span>
               </button>
             </div>
           </div>
