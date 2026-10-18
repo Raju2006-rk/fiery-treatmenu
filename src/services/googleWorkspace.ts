@@ -546,21 +546,65 @@ export async function listGoogleDriveSpreadsheets(
 // GOOGLE APPS SCRIPT WEB APP INTEGRATION (24/7 AUTOMATED SYNC)
 // ============================================================
 
-export const APPS_SCRIPT_TEMPLATE_CODE = `// ============================================================
+export const APPS_SCRIPT_MANIFEST_CODE = `{
+  "timeZone": "Asia/Kolkata",
+  "dependencies": {},
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
+  "webapp": {
+    "executeAs": "USER_DEPLOYING",
+    "access": "ANYONE_ANONYMOUS"
+  },
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/spreadsheets.currentonly"
+  ]
+}`;
+
+export const APPS_SCRIPT_TEMPLATE_CODE = `/** @OnlyCurrentDoc */
+// ============================================================
 // FIREY TREAT RESTAURANT - GOOGLE APPS SCRIPT ORDERS SYNC WEB APP
+// 100% COMPATIBLE WITH GOOGLE ADVANCED PROTECTION PROGRAM
+// ============================================================
 //
-// HOW TO SET UP:
-// 1. Open your Google Sheet in Google Drive.
-// 2. In top menu, click Extensions > Apps Script.
-// 3. Delete everything and paste this entire code.
-// 4. Click the blue "Deploy" button (top right) -> "New deployment".
-// 5. Select type "Web app".
-// 6. Set Description: "Firey Treat Orders Webhook"
-// 7. Set "Execute as": "Me"
-// 8. Set "Who has access": "Anyone"  <-- CRITICAL!
-// 9. Click "Deploy", authorize permissions when prompted.
-// 10. Copy the Web App URL (starts with https://script.google.com/macros/s/...)
-//     and paste it into Firey Treat Owner Settings!
+// HOW TO DEPLOY UNDER GOOGLE ADVANCED PROTECTION (NO ERRORS!):
+//
+// 1. Open your Google Sheet -> Click "Extensions" > "Apps Script".
+//
+// 2. RENAME PROJECT:
+//    - Click "Untitled project" at top-left and rename it to:
+//      "Firey Treat Orders Sync"
+//    - (Advanced Protection blocks apps with the default name "Untitled project").
+//
+// 3. DO NOT CHANGE GCP PROJECT:
+//    - Keep the Google Cloud Platform (GCP) Project on DEFAULT!
+//    - Do NOT enter any project number in Project Settings.
+//
+// 4. PASTE CODE:
+//    - Select all in Code.gs, delete it, and paste this entire file.
+//    - Notice line 1: /** @OnlyCurrentDoc */ is CRUCIAL. It restricts
+//      permissions strictly to this single spreadsheet so Google Advanced
+//      Protection approves it without Error 400 policy_enforced.
+//    - Click Save (💾).
+//
+// 5. DEPLOY AS WEB APP:
+//    - Click the blue "Deploy" button (top right) -> "New deployment".
+//      (NOTE: If you had a previous failed deployment, you MUST choose
+//       "New deployment" so Apps Script resets the authorization scopes).
+//    - Click the gear icon (⚙️) next to "Select type" -> select "Web app".
+//    - Description: "Firey Treat Orders Webhook"
+//    - Execute as: "Me"
+//    - Who has access: "Anyone"  <-- CRITICAL for orders to arrive 24/7!
+//    - Click "Deploy".
+//
+// 6. AUTHORIZE ACCESS:
+//    - Click "Authorize access" -> choose your Google Account.
+//    - Google will show: "Firey Treat Orders Sync wants to access your Google Account
+//      (See, edit, create, and delete only the specific Google Sheets spreadsheet you use this app in)".
+//    - Click "Advanced" -> click "Go to Firey Treat Orders Sync (unsafe)" -> click "Allow".
+//
+// 7. COPY WEB APP URL:
+//    - Copy the Web App URL (starts with https://script.google.com/macros/s/ and ends in /exec).
+//    - Paste it in Firey Treat Owner Admin Panel!
 // ============================================================
 
 function doPost(e) {

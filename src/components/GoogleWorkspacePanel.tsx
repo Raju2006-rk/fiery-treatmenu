@@ -16,6 +16,7 @@ import {
   setAppsScriptUrl,
   testAppsScriptConnection,
   APPS_SCRIPT_TEMPLATE_CODE,
+  APPS_SCRIPT_MANIFEST_CODE,
   SpreadsheetInfo
 } from '../services/googleWorkspace';
 import { GoogleSignInButton } from './GoogleSignInButton';
@@ -71,6 +72,8 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
   const [scriptStatus, setScriptStatus] = useState<string>('');
   const [showScriptCode, setShowScriptCode] = useState(false);
   const [hasCopiedCode, setHasCopiedCode] = useState(false);
+  const [scriptViewMode, setScriptViewMode] = useState<'code' | 'manifest'>('code');
+  const [hasCopiedManifest, setHasCopiedManifest] = useState(false);
 
   useEffect(() => {
     const unsubscribe = initAuth(
@@ -309,6 +312,12 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
     navigator.clipboard.writeText(APPS_SCRIPT_TEMPLATE_CODE);
     setHasCopiedCode(true);
     setTimeout(() => setHasCopiedCode(false), 2500);
+  };
+
+  const handleCopyManifest = () => {
+    navigator.clipboard.writeText(APPS_SCRIPT_MANIFEST_CODE);
+    setHasCopiedManifest(true);
+    setTimeout(() => setHasCopiedManifest(false), 2500);
   };
 
   return (
@@ -612,32 +621,113 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
           </button>
 
           {showScriptCode && (
-            <div className="mt-3 p-4 rounded-xl bg-neutral-900/90 border border-neutral-800 space-y-3 text-xs text-neutral-300 animate-in fade-in">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-white text-xs">Google Apps Script Code (Copy & Paste):</span>
-                <button
-                  type="button"
-                  onClick={handleCopyScriptCode}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  {hasCopiedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{hasCopiedCode ? 'Copied to Clipboard!' : 'Copy Script Code'}</span>
-                </button>
+            <div className="mt-3 p-4 rounded-xl bg-neutral-900/90 border border-neutral-800 space-y-4 text-xs text-neutral-300 animate-in fade-in">
+              {/* Tabs for Code.gs and appsscript.json */}
+              <div className="flex items-center justify-between flex-wrap gap-2 border-b border-neutral-800 pb-2.5">
+                <div className="flex items-center gap-1.5 bg-neutral-950 p-1 rounded-xl border border-neutral-800">
+                  <button
+                    type="button"
+                    onClick={() => setScriptViewMode('code')}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      scriptViewMode === 'code'
+                        ? 'bg-amber-500 text-neutral-950 font-bold shadow'
+                        : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    Code.gs (Main Script)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScriptViewMode('manifest')}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                      scriptViewMode === 'manifest'
+                        ? 'bg-amber-500 text-neutral-950 font-bold shadow'
+                        : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    appsscript.json (Manifest)
+                  </button>
+                </div>
+
+                {scriptViewMode === 'code' ? (
+                  <button
+                    type="button"
+                    onClick={handleCopyScriptCode}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    {hasCopiedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{hasCopiedCode ? 'Copied Code!' : 'Copy Code.gs'}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleCopyManifest}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    {hasCopiedManifest ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{hasCopiedManifest ? 'Copied Manifest!' : 'Copy Manifest'}</span>
+                  </button>
+                )}
               </div>
 
-              <div className="p-3 rounded-lg bg-neutral-950 border border-neutral-800 overflow-x-auto max-h-48 text-[11px] font-mono text-neutral-300 select-all">
-                <pre>{APPS_SCRIPT_TEMPLATE_CODE}</pre>
+              {/* Code Previews */}
+              <div className="p-3 rounded-lg bg-neutral-950 border border-neutral-800 overflow-x-auto max-h-52 text-[11px] font-mono text-neutral-300 select-all">
+                <pre>{scriptViewMode === 'code' ? APPS_SCRIPT_TEMPLATE_CODE : APPS_SCRIPT_MANIFEST_CODE}</pre>
               </div>
 
-              <div className="space-y-1.5 text-[11px] text-neutral-300">
-                <p className="font-bold text-amber-400">Step-by-step instructions:</p>
-                <ol className="list-decimal list-inside space-y-1 pl-1 text-neutral-400">
-                  <li>Open your Google Sheet in Google Drive.</li>
-                  <li>Click <strong className="text-white">Extensions &gt; Apps Script</strong>.</li>
-                  <li>Delete any existing code, paste the code above, and click <strong className="text-white">Save</strong>.</li>
-                  <li>Click <strong className="text-white">Deploy &gt; New deployment</strong> (top-right blue button).</li>
-                  <li>Select type <strong className="text-white">Web app</strong>, set <strong className="text-white">Execute as: Me</strong>, and <strong className="text-emerald-400">Who has access: Anyone</strong>.</li>
-                  <li>Click Deploy, approve permissions, copy the Web app URL, and paste it in the box above!</li>
+              {/* Troubleshooting Warning */}
+              <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs space-y-1.5">
+                <p className="font-bold flex items-center gap-1.5 text-amber-300">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Fixing Error 400 &quot;policy_enforced&quot; &amp; Deployment Failures</span>
+                </p>
+                <ul className="list-disc list-inside space-y-1 text-[11px] text-amber-200/90 leading-relaxed pl-1">
+                  <li>
+                    <strong className="text-white">DO NOT change the Google Cloud Platform (GCP) Project:</strong> In Apps Script Project Settings, leave the GCP Project on <em className="text-amber-300">Default</em>. Do not enter any project numbers!
+                  </li>
+                  <li>
+                    <strong className="text-white">Line 1 has <code>/** @OnlyCurrentDoc */</code>:</strong> This restricts the script to this single spreadsheet so Google Advanced Protection approves it.
+                  </li>
+                  <li>
+                    <strong className="text-white">Delete old deployments:</strong> If you saw an error on a previous attempt, click <strong className="text-white">Deploy &gt; Manage deployments</strong>, click the trash can icon to archive the old one, then click <strong className="text-emerald-400">Deploy &gt; New deployment</strong>.
+                  </li>
+                </ul>
+              </div>
+
+              {/* Step-by-Step Instructions */}
+              <div className="space-y-2 text-[11px] text-neutral-300">
+                <p className="font-bold text-white text-xs">Step-by-step setup instructions:</p>
+                <ol className="list-decimal list-inside space-y-2 pl-1 text-neutral-300 leading-relaxed">
+                  <li>
+                    Open your Google Sheet in Google Drive.
+                  </li>
+                  <li>
+                    Click <strong className="text-white">Extensions &gt; Apps Script</strong>.
+                  </li>
+                  <li>
+                    At the top-left, click on <strong className="text-white">&quot;Untitled project&quot;</strong> and rename it to <strong className="text-amber-300">&quot;Firey Treat Orders Sync&quot;</strong> (Advanced Protection blocks apps with the literal name &quot;Untitled project&quot;).
+                  </li>
+                  <li>
+                    In the Editor (<code className="text-neutral-400">&lt;&gt;</code> icon), delete all default code in <strong className="text-white">Code.gs</strong>, paste the script code from above (making sure <code className="text-emerald-400">/** @OnlyCurrentDoc */</code> is on line 1), and click the <strong className="text-white">Save (💾)</strong> icon.
+                  </li>
+                  <li>
+                    Click the blue <strong className="text-white">Deploy &gt; New deployment</strong> button (top-right).
+                  </li>
+                  <li>
+                    Click the gear icon (⚙️) next to &quot;Select type&quot; and choose <strong className="text-white">Web app</strong>.
+                  </li>
+                  <li>
+                    Set <strong className="text-white">Execute as: Me</strong> and <strong className="text-emerald-400">Who has access: Anyone</strong> (required so live customer orders can reach your sheet).
+                  </li>
+                  <li>
+                    Click <strong className="text-white">Deploy</strong>, then click <strong className="text-white">Authorize access</strong>.
+                  </li>
+                  <li>
+                    Choose your Google Account, click <strong className="text-amber-200">Advanced</strong>, click <strong className="text-amber-200">Go to Firey Treat Orders Sync (unsafe)</strong>, and click <strong className="text-emerald-400">Allow</strong>.
+                  </li>
+                  <li>
+                    Copy the generated <strong className="text-white">Web App URL</strong> (starts with <code className="text-amber-400">https://script.google.com/macros/s/</code> and ends in <code className="text-amber-400">/exec</code>) and paste it into the box above, then click <strong className="text-white">Save URL</strong> and <strong className="text-white">Test Connection</strong>!
+                  </li>
                 </ol>
               </div>
             </div>
