@@ -87,7 +87,11 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
     return () => unsubscribe();
   }, []);
 
-  const loadSpreadsheetAndDrive = async (authToken: string) => {
+  const loadSpreadsheetAndDrive = async (authToken: string | null) => {
+    if (!authToken) {
+      setIsLoadingSheet(false);
+      return;
+    }
     setIsLoadingSheet(true);
     setErrorMessage('');
     try {
@@ -95,9 +99,16 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
       setActiveSheet(sheet);
       const files = await listGoogleDriveSpreadsheets(authToken);
       setDriveFiles(files);
-    } catch (err) {
-      console.error('Failed to load Google Sheet/Drive:', err);
-      setErrorMessage(err instanceof Error ? err.message : 'Failed to connect to Google Sheets');
+    } catch (err: any) {
+      console.warn('Direct Google Sheet/Drive OAuth access unavailable:', err);
+      const isPolicyOrForbidden = err?.message?.includes('policy') || err?.message?.includes('403') || err?.message?.includes('Insufficient');
+      if (isPolicyOrForbidden) {
+        setErrorMessage(
+          'Google Advanced Protection is active: Direct Google Drive/Sheets OAuth access is protected by your Google Account security policy. Your basic account authentication succeeded! Please use the Google Apps Script Web App below for seamless 24/7 order synchronization without third-party permissions.'
+        );
+      } else {
+        setErrorMessage(err instanceof Error ? err.message : 'Failed to connect to Google Sheets');
+      }
     } finally {
       setIsLoadingSheet(false);
     }
@@ -111,7 +122,9 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
       if (result) {
         setUser(result.user);
         setToken(result.accessToken);
-        await loadSpreadsheetAndDrive(result.accessToken);
+        if (result.accessToken) {
+          await loadSpreadsheetAndDrive(result.accessToken);
+        }
       }
     } catch (err) {
       console.error('Sign in failed:', err);
@@ -359,6 +372,17 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
               label="Sign in with Google"
             />
           )}
+        </div>
+      </div>
+
+      {/* Google Advanced Protection Notice */}
+      <div className="p-3.5 rounded-2xl bg-blue-950/30 border border-blue-500/30 flex items-start gap-3 text-xs text-blue-200">
+        <ShieldCheck className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+        <div className="space-y-0.5">
+          <span className="font-bold text-white block">Google Advanced Protection Compatible</span>
+          <p className="text-[11px] text-blue-200/90 leading-relaxed">
+            Google Sign-In uses minimal identity permissions (profile &amp; email) to preserve strict account protection. For automated Google Sheets sync without granting third-party Drive permissions, configure the <strong>Google Apps Script Web App</strong> below.
+          </p>
         </div>
       </div>
 

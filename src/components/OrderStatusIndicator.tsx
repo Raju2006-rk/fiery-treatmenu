@@ -16,7 +16,8 @@ import {
   Loader2,
   PackageCheck,
   Flame,
-  ArrowRight
+  ArrowRight,
+  Heart
 } from 'lucide-react';
 
 interface OrderStatusIndicatorProps {
@@ -245,38 +246,56 @@ export const OrderStatusIndicator: React.FC<OrderStatusIndicatorProps> = ({
                       Locations <span className="text-rose-400 font-semibold">above 10 km cannot be delivered</span> via online order.
                     </p>
                     {quickLocation ? (
-                      <div className={`p-2 rounded-lg text-xs flex items-center justify-between gap-2 ${
-                        !quickLocation.isWithin10km || quickLocation.distanceKm > 10
-                          ? 'bg-rose-950/80 border border-rose-800/80 text-rose-200'
-                          : quickLocation.isUnder500m
-                          ? 'bg-emerald-950/70 border border-emerald-800/60 text-emerald-300'
-                          : 'bg-blue-950/70 border border-blue-800/60 text-blue-200'
-                      }`}>
-                        <div className="flex items-center gap-1.5">
-                          {!quickLocation.isWithin10km || quickLocation.distanceKm > 10 ? (
-                            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-                          ) : (
-                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                          )}
-                          <span>
-                            Auto-detected: <strong>{quickLocation.distanceMeters < 1000 ? `${quickLocation.distanceMeters}m` : `${quickLocation.distanceKm.toFixed(1)} km`}</strong> away.
-                            {!quickLocation.isWithin10km || quickLocation.distanceKm > 10
-                              ? ' (🚫 Above 10 km: Delivery options locked. Counter takeaway only.)'
-                              : quickLocation.isUnder500m
-                              ? ' (Reduced Fee: FREE ₹0 applied!)'
-                              : ` (Delivery Fee: ₹${quickLocation.calculatedFee} applied)`}
-                          </span>
+                      <div className="space-y-2">
+                        <div className={`p-2 rounded-lg text-xs flex items-center justify-between gap-2 ${
+                          !quickLocation.isWithin10km || quickLocation.distanceKm > 10
+                            ? 'bg-rose-950/80 border border-rose-800/80 text-rose-200'
+                            : quickLocation.isUnder500m
+                            ? 'bg-emerald-950/70 border border-emerald-800/60 text-emerald-300'
+                            : 'bg-blue-950/70 border border-blue-800/60 text-blue-200'
+                        }`}>
+                          <div className="flex items-center gap-1.5">
+                            {!quickLocation.isWithin10km || quickLocation.distanceKm > 10 ? (
+                              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                            ) : (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                            )}
+                            <span>
+                              Auto-detected: <strong>{quickLocation.distanceMeters < 1000 ? `${quickLocation.distanceMeters}m` : `${quickLocation.distanceKm.toFixed(1)} km`}</strong> away.
+                              {!quickLocation.isWithin10km || quickLocation.distanceKm > 10
+                                ? ' (🚫 Above 10 km: Local delivery locked)'
+                                : quickLocation.isUnder500m
+                                ? ' (Reduced Fee: FREE ₹0 applied!)'
+                                : ` (Delivery Fee: ₹${quickLocation.calculatedFee} applied)`}
+                            </span>
+                          </div>
+                          <button
+                            onClick={onOpenCart}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded cursor-pointer shrink-0 ${
+                              !quickLocation.isWithin10km || quickLocation.distanceKm > 10
+                                ? 'bg-rose-500 hover:bg-rose-400 text-white'
+                                : 'bg-emerald-500 hover:bg-emerald-400 text-neutral-950'
+                            }`}
+                          >
+                            {!quickLocation.isWithin10km || quickLocation.distanceKm > 10 ? 'Check Cart' : 'Fill In Cart'}
+                          </button>
                         </div>
-                        <button
-                          onClick={onOpenCart}
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded cursor-pointer ${
-                            !quickLocation.isWithin10km || quickLocation.distanceKm > 10
-                              ? 'bg-rose-500 hover:bg-rose-400 text-white'
-                              : 'bg-emerald-500 hover:bg-emerald-400 text-neutral-950'
-                          }`}
-                        >
-                          Fill In Cart
-                        </button>
+
+                        {(!quickLocation.isWithin10km || quickLocation.distanceKm > 10) && (
+                          <div className="p-2 rounded-lg bg-amber-950/40 border border-amber-500/40 text-xs flex items-center justify-between gap-2 text-amber-200">
+                            <div className="flex items-center gap-1.5">
+                              <Heart className="w-3.5 h-3.5 text-rose-400 fill-current shrink-0" />
+                              <span><strong>Ordering for family in Pachikapalem?</strong> You can order from anywhere if recipient is within 10 km!</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={onOpenCart}
+                              className="px-2 py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-[10px] shrink-0 cursor-pointer"
+                            >
+                              Order for Family
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <p className="text-[11px] text-neutral-400">

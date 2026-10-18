@@ -10,20 +10,31 @@ import {
 import firebaseConfig from '../../firebase-applet-config.json';
 import { OrderDetails } from '../types';
 
+// Load Firebase configuration from environment variables (Vercel) with fallback to applet config
+const firebaseProjectConfig = {
+  apiKey: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_API_KEY) || firebaseConfig.apiKey,
+  authDomain: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN) || firebaseConfig.authDomain,
+  projectId: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_PROJECT_ID) || firebaseConfig.projectId,
+  storageBucket: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET) || firebaseConfig.storageBucket,
+  messagingSenderId: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID) || firebaseConfig.messagingSenderId,
+  appId: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_APP_ID) || firebaseConfig.appId,
+};
+
 // Ensure singleton Firebase App
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseProjectConfig);
 export const auth = getAuth(app);
 
-// Google Workspace Scopes configured for Google Sheets & Google Drive
-export const SCOPES = [
+// Optional Google Workspace Scopes (for direct client-side Google Sheets OAuth)
+export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
   'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/drive.readonly'
 ];
 
-const provider = new GoogleAuthProvider();
-SCOPES.forEach((scope) => provider.addScope(scope));
-provider.setCustomParameters({
+// Default provider uses ONLY standard minimum OpenID Connect scopes (openid, profile, email)
+// This strictly complies with Google Advanced Protection and prevents '400 policy_enforced' errors.
+export const authProvider = new GoogleAuthProvider();
+authProvider.setCustomParameters({
   prompt: 'select_account'
 });
 
@@ -93,26 +104,43 @@ export const initAuth = (
   });
 };
 
-export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
+export const googleSignIn = async (): Promise<{ user: User; accessToken: string | null } | null> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
+    const result = await signInWithPopup(auth, authProvider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('Failed to obtain Google access token from Firebase Auth');
+    const accessToken = credential?.accessToken || null;
+
+    if (accessToken) {
+      cachedAccessToken = accessToken;
+      try {
+        sessionStorage.setItem(TOKEN_KEY, accessToken);
+        sessionStorage.setItem(TOKEN_TIME_KEY, Date.now().toString());
+      } catch (e) {
+        console.warn('Could not cache access token:', e);
+      }
     }
 
-    cachedAccessToken = credential.accessToken;
-    try {
-      sessionStorage.setItem(TOKEN_KEY, credential.accessToken);
-      sessionStorage.setItem(TOKEN_TIME_KEY, Date.now().toString());
-    } catch (e) {
-      console.warn('Could not cache access token:', e);
-    }
-
-    return { user: result.user, accessToken: cachedAccessToken };
+    return { user: result.user, accessToken };
   } catch (error: any) {
     console.error('Google Sign In error:', error);
+    const errMessage = error?.message || '';
+
+    // Handle Google Advanced Protection policy_enforced error specifically
+    if (errMessage.includes('policy_enforced') || error?.code === 'auth/policy-enforced') {
+      throw new Error(
+        'Google Advanced Protection has restricted third-party access for this account. Your account security remains strictly preserved. You can sign in using your Owner Security PIN, or use the Google Apps Script Web App for automated Sheets sync without third-party permissions.'
+      );
+    }
+
+    // Handle Vercel domain not yet whitelisted in Firebase Console
+    if (error?.code === 'auth/unauthorized-domain') {
+      const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'your-domain.vercel.app';
+      throw new Error(
+        `Domain unauthorized: "${currentHost}" is not listed in your Firebase project authorized domains. Please add "${currentHost}" in Firebase Console -> Authentication -> Settings -> Authorized domains.`
+      );
+    }
+
     if (error?.code === 'auth/popup-closed-by-user') {
       throw new Error('Sign-in popup was closed before completion. Please try signing in again.');
     }
@@ -125,6 +153,37 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     throw error;
   } finally {
     isSigningIn = false;
+  }
+};
+
+/**
+ * Optional: Incremental consent flow for Google Sheets & Drive scopes.
+ * If the user's account is enrolled in Advanced Protection, this will be blocked by Google
+ * with 'policy_enforced', in which case the user should use the Google Apps Script Web App.
+ */
+export const requestDirectGoogleWorkspaceScopes = async (): Promise<string | null> => {
+  try {
+    const wsProvider = new GoogleAuthProvider();
+    WORKSPACE_SCOPES.forEach((scope) => wsProvider.addScope(scope));
+    wsProvider.setCustomParameters({ prompt: 'consent' });
+    const result = await signInWithPopup(auth, wsProvider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (credential?.accessToken) {
+      cachedAccessToken = credential.accessToken;
+      try {
+        sessionStorage.setItem(TOKEN_KEY, credential.accessToken);
+        sessionStorage.setItem(TOKEN_TIME_KEY, Date.now().toString());
+      } catch {}
+      return credential.accessToken;
+    }
+    return null;
+  } catch (err: any) {
+    if (err?.message?.includes('policy_enforced') || err?.code === 'auth/policy-enforced') {
+      throw new Error(
+        'Google Advanced Protection prevents third-party apps from accessing your Google Drive/Sheets. Please use the Google Apps Script Web App method below for automated order logging without third-party OAuth permissions.'
+      );
+    }
+    throw err;
   }
 };
 

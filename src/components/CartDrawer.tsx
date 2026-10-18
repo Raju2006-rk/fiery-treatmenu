@@ -38,7 +38,9 @@ import {
   Check,
   Lock,
   Unlock,
-  ShieldAlert
+  ShieldAlert,
+  Heart,
+  Users
 } from 'lucide-react';
 
 interface CartDrawerProps {
@@ -76,6 +78,12 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const [specialInstructions, setSpecialInstructions] = useState('');
   const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
   const [addressAutoFilled, setAddressAutoFilled] = useState(false);
+
+  // Feature: Order for Family / Relatives when sender is outside the 10km radius
+  const [isOrderingForFamily, setIsOrderingForFamily] = useState(false);
+  const [familyRecipientName, setFamilyRecipientName] = useState('');
+  const [familyRecipientPhone, setFamilyRecipientPhone] = useState('');
+  const [familyRelationship, setFamilyRelationship] = useState('Parents');
 
   // Sync external order type if changed
   useEffect(() => {
@@ -127,16 +135,22 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     return null;
   }, [userCoords, detectedDistanceKm]);
 
-  // Check if distance exceeds 10km radius
+  // Check if distance exceeds 10km radius (exempt if ordering for family residing in Pachikapalem)
   const isDistanceExceeding10km = useMemo(() => {
+    if (isOrderingForFamily) {
+      return false;
+    }
     if (calculatedDistanceKm !== null) {
       return calculatedDistanceKm > RESTAURANT_COORDINATES.maxDeliveryRadiusKm;
     }
     return selectedBracket === 'above_10km';
-  }, [calculatedDistanceKm, selectedBracket]);
+  }, [isOrderingForFamily, calculatedDistanceKm, selectedBracket]);
 
-  // Customer is out of 10 km radius: hide distance options and lock until auto-detected below 10 km
+  // Customer is out of 10 km radius: hide distance options and lock until auto-detected below 10 km OR ordering for family
   const isCustomerOutOfRadius = useMemo(() => {
+    if (isOrderingForFamily) {
+      return false;
+    }
     if (calculatedDistanceKm !== null) {
       return calculatedDistanceKm > RESTAURANT_COORDINATES.maxDeliveryRadiusKm;
     }
@@ -144,7 +158,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       return true;
     }
     return selectedBracket === 'above_10km';
-  }, [calculatedDistanceKm, externalLocation, selectedBracket]);
+  }, [isOrderingForFamily, calculatedDistanceKm, externalLocation, selectedBracket]);
 
   if (!isOpen) return null;
 
@@ -154,12 +168,14 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   );
 
   // Compute active distance info (only 0-500m is free, 500m-6km: ₹30, 6km-10km: ₹40, >10km: unable to deliver)
-  const effectiveDistanceKm = calculatedDistanceKm !== null 
-    ? calculatedDistanceKm 
-    : (selectedBracket === 'above_10km' ? 12.0 : (DISTANCE_PRESETS.find(p => p.id === selectedBracket)?.typicalKm ?? 0.35));
+  const effectiveDistanceKm = isOrderingForFamily
+    ? (DISTANCE_PRESETS.find(p => p.id === (selectedBracket === 'above_10km' ? 'between_500m_and_6km' : selectedBracket))?.typicalKm ?? 1.5)
+    : (calculatedDistanceKm !== null 
+        ? calculatedDistanceKm 
+        : (selectedBracket === 'above_10km' ? 12.0 : (DISTANCE_PRESETS.find(p => p.id === selectedBracket)?.typicalKm ?? 0.35)));
 
   const deliveryInfo: DistanceInfo = evaluateDeliveryDistance(effectiveDistanceKm);
-  const isDeliveryAbove10km = orderType === 'delivery' && (isDistanceExceeding10km || !deliveryInfo.isWithin10km || effectiveDistanceKm > RESTAURANT_COORDINATES.maxDeliveryRadiusKm);
+  const isDeliveryAbove10km = orderType === 'delivery' && !isOrderingForFamily && (isDistanceExceeding10km || !deliveryInfo.isWithin10km || effectiveDistanceKm > RESTAURANT_COORDINATES.maxDeliveryRadiusKm);
   const deliveryFee = orderType === 'delivery' ? (isDeliveryAbove10km ? 0 : deliveryInfo.calculatedFee) : 0;
   const grandTotal = subtotal + deliveryFee;
 
@@ -246,27 +262,40 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         : '🥡 Takeaway / Parcel'
     }\n`;
 
-    if (customerName) msg += `*Customer:* ${customerName}\n`;
-    if (customerPhone) msg += `*Phone:* ${customerPhone}\n`;
+    if (!isOrderingForFamily) {
+      if (customerName) msg += `*Customer:* ${customerName}\n`;
+      if (customerPhone) msg += `*Phone:* ${customerPhone}\n`;
+    }
 
     if (orderType === 'delivery') {
-      const distanceDisplay = detectedDistanceKm !== null 
-        ? `${Math.round(detectedDistanceKm * 1000)} meters (${detectedDistanceKm.toFixed(2)} km)` 
-        : `${deliveryInfo.bracketLabel}`;
+      if (isOrderingForFamily) {
+        msg += `🎁 *SPECIAL ORDER: ORDERING FOR FAMILY / RELATIVES* 🎁\n`;
+        msg += `_(Sender is ordering from outside radius for family residing in Pachikapalem)_\n`;
+        msg += `*Recipient (Family Member):* ${familyRecipientName || 'Family Member'}${familyRelationship ? ` (${familyRelationship})` : ''}\n`;
+        msg += `*Recipient Phone:* ${familyRecipientPhone || 'N/A'} _(Please call on arrival!)_\n`;
+        msg += `*Family Delivery Address:* ${deliveryAddress || 'Pachikapalem'}\n`;
+        msg += `*Pachikapalem Distance Zone:* ${deliveryInfo.bracketLabel}\n`;
+        if (customerName) msg += `*Sender (Ordered By):* ${customerName}\n`;
+        if (customerPhone) msg += `*Sender Phone:* ${customerPhone}\n`;
+      } else {
+        const distanceDisplay = detectedDistanceKm !== null 
+          ? `${Math.round(detectedDistanceKm * 1000)} meters (${detectedDistanceKm.toFixed(2)} km)` 
+          : `${deliveryInfo.bracketLabel}`;
 
-      msg += `*Delivery Distance:* ${distanceDisplay} from Pachikapalem\n`;
-      msg += `*10km Radius Status:* ${
-        deliveryInfo.isUnder500m
-          ? '⚡ Below 500m (Reduced Delivery Fee: FREE ₹0)'
-          : `✅ Within 10 KM Radius (${deliveryInfo.bracketLabel})`
-      }\n`;
+        msg += `*Delivery Distance:* ${distanceDisplay} from Pachikapalem\n`;
+        msg += `*10km Radius Status:* ${
+          deliveryInfo.isUnder500m
+            ? '⚡ Below 500m (Reduced Delivery Fee: FREE ₹0)'
+            : `✅ Within 10 KM Radius (${deliveryInfo.bracketLabel})`
+        }\n`;
 
-      if (userCoords) {
-        msg += `*Customer GPS Pin:* https://maps.google.com/?q=${userCoords.lat},${userCoords.lng}\n`;
-      }
+        if (userCoords) {
+          msg += `*Customer GPS Pin:* https://maps.google.com/?q=${userCoords.lat},${userCoords.lng}\n`;
+        }
 
-      if (deliveryAddress) {
-        msg += `*Address / Landmark:* ${deliveryAddress}\n`;
+        if (deliveryAddress) {
+          msg += `*Address / Landmark:* ${deliveryAddress}\n`;
+        }
       }
     }
 
@@ -321,13 +350,19 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       id: `FT-${Date.now().toString().slice(-6)}`,
       items: [...cart],
       orderType,
-      customerName: customerName.trim() || 'WhatsApp Customer',
-      customerPhone: customerPhone.trim() || '',
+      customerName: isOrderingForFamily
+        ? `${familyRecipientName.trim() || 'Family'} (From: ${customerName.trim() || 'Sender'})`
+        : customerName.trim() || 'WhatsApp Customer',
+      customerPhone: isOrderingForFamily
+        ? (familyRecipientPhone.trim() || customerPhone.trim() || '')
+        : (customerPhone.trim() || ''),
       address: orderType === 'delivery' 
         ? (deliveryAddress || (userCoords ? `${userCoords.lat.toFixed(5)}, ${userCoords.lng.toFixed(5)}` : 'Local'))
         : undefined,
       tableNumber: orderType === 'dine_in' ? tableNumber : undefined,
-      instructions: specialInstructions || undefined,
+      instructions: isOrderingForFamily
+        ? `🎁 [Family Order: ${familyRecipientName} (${familyRecipientPhone}) from ${customerName} (${customerPhone})] ${specialInstructions || ''}`.trim()
+        : specialInstructions || undefined,
       subtotal,
       deliveryFee,
       grandTotal,
@@ -617,6 +652,114 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         </span>
                       </div>
 
+                      {/* Feature: Order for Family / Relatives in Pachikapalem (Out-of-Radius Friendly) */}
+                      <div className={`p-3 rounded-xl border transition-all ${
+                        isOrderingForFamily
+                          ? 'bg-amber-950/40 border-amber-500/80 shadow-md shadow-amber-950/60'
+                          : 'bg-neutral-950 border-neutral-800 hover:border-amber-500/30'
+                      }`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-2.5">
+                            <div className={`p-2 rounded-lg mt-0.5 ${isOrderingForFamily ? 'bg-amber-500 text-neutral-950' : 'bg-neutral-900 text-amber-400'}`}>
+                              <Heart className="w-4 h-4 fill-current" />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-bold text-xs text-white">Order for Family / Relatives</span>
+                                <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-bold uppercase tracking-wider">
+                                  Out-of-Radius Friendly
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-neutral-400 mt-0.5 leading-snug">
+                                Are you currently outside our 10 km radius? Send a fresh feast directly to your parents, family, or friends residing in Pachikapalem!
+                              </p>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = !isOrderingForFamily;
+                              setIsOrderingForFamily(next);
+                              if (next && selectedBracket === 'above_10km') {
+                                setSelectedBracket('between_500m_and_6km');
+                              }
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                              isOrderingForFamily
+                                ? 'bg-amber-500 text-neutral-950 shadow-md font-extrabold'
+                                : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-white'
+                            }`}
+                          >
+                            {isOrderingForFamily ? 'Enabled ✓' : 'Enable'}
+                          </button>
+                        </div>
+
+                        {/* Family Recipient Form when Enabled */}
+                        {isOrderingForFamily && (
+                          <div className="mt-3 pt-3 border-t border-amber-500/30 space-y-2.5 animate-fadeIn">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                                <Users className="w-3 h-3" /> Family Recipient Details (In Pachikapalem)
+                              </span>
+                              <span className="text-[9px] text-emerald-400 font-semibold bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-800/80">
+                                🔓 Delivery Radius Unlocked
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="text-[10px] text-neutral-400 block mb-1">
+                                  Family Member Name <span className="text-amber-400">*</span>
+                                </label>
+                                <input
+                                  type="text"
+                                  value={familyRecipientName}
+                                  onChange={(e) => setFamilyRecipientName(e.target.value)}
+                                  placeholder="e.g. Dad / Mom / Suresh"
+                                  className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-500"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="text-[10px] text-neutral-400 block mb-1">
+                                  Recipient Phone (for Rider) <span className="text-amber-400">*</span>
+                                </label>
+                                <input
+                                  type="tel"
+                                  value={familyRecipientPhone}
+                                  onChange={(e) => setFamilyRecipientPhone(e.target.value)}
+                                  placeholder="e.g. 9848012345"
+                                  className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-amber-500"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="text-[10px] text-neutral-400 block mb-1">
+                                Who are you ordering for? (Optional tag)
+                              </label>
+                              <div className="flex flex-wrap gap-1.5">
+                                {['Parents', 'Spouse', 'Children', 'Siblings', 'Relatives', 'Friends'].map((rel) => (
+                                  <button
+                                    key={rel}
+                                    type="button"
+                                    onClick={() => setFamilyRelationship(rel === familyRelationship ? '' : rel)}
+                                    className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors cursor-pointer border ${
+                                      familyRelationship === rel
+                                        ? 'bg-amber-500 text-neutral-950 border-amber-400 font-bold'
+                                        : 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-white'
+                                    }`}
+                                  >
+                                    {rel}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       {/* Rule Highlight Callout */}
                       <div className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800 text-[11px] space-y-1">
                         <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
@@ -628,54 +771,61 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         </p>
                       </div>
 
-                      {/* GPS Detection Button with Auto-Fill Feature */}
-                      <div>
-                        <button
-                          type="button"
-                          onClick={handleDetectLocation}
-                          disabled={isLocating}
-                          className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-neutral-950 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 shadow-md shadow-amber-950/40"
-                        >
-                          {isLocating ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin text-neutral-950" />
-                              <span>Detecting GPS Location & Auto-Filling...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Compass className="w-4 h-4 text-neutral-950" />
-                              <span>Auto-Detect & Fill Location (GPS)</span>
-                            </>
+                      {/* GPS Detection Button with Auto-Fill Feature (Only if NOT ordering for remote family) */}
+                      {!isOrderingForFamily && (
+                        <div>
+                          <button
+                            type="button"
+                            onClick={handleDetectLocation}
+                            disabled={isLocating}
+                            className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-300 text-neutral-950 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 shadow-md shadow-amber-950/40"
+                          >
+                            {isLocating ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin text-neutral-950" />
+                                <span>Detecting GPS Location & Auto-Filling...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Compass className="w-4 h-4 text-neutral-950" />
+                                <span>Auto-Detect & Fill Location (GPS)</span>
+                              </>
+                            )}
+                          </button>
+
+                          {/* Location status or error */}
+                          {locationStatus && (
+                            <div className={`mt-2 p-2.5 rounded-lg text-xs flex items-start gap-1.5 ${
+                              deliveryInfo.isUnder500m
+                                ? 'bg-emerald-950/80 border border-emerald-800/80 text-emerald-300'
+                                : deliveryInfo.isWithin10km
+                                ? 'bg-blue-950/80 border border-blue-800/80 text-blue-300'
+                                : 'bg-rose-950/80 border border-rose-800/80 text-rose-300'
+                            }`}>
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                              <span className="leading-tight">{locationStatus}</span>
+                            </div>
                           )}
-                        </button>
 
-                        {/* Location status or error */}
-                        {locationStatus && (
-                          <div className={`mt-2 p-2.5 rounded-lg text-xs flex items-start gap-1.5 ${
-                            deliveryInfo.isUnder500m
-                              ? 'bg-emerald-950/80 border border-emerald-800/80 text-emerald-300'
-                              : deliveryInfo.isWithin10km
-                              ? 'bg-blue-950/80 border border-blue-800/80 text-blue-300'
-                              : 'bg-rose-950/80 border border-rose-800/80 text-rose-300'
-                          }`}>
-                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                            <span className="leading-tight">{locationStatus}</span>
-                          </div>
-                        )}
+                          {locationError && (
+                            <div className="mt-2 p-2 rounded-lg bg-rose-950/70 border border-rose-800/60 text-rose-300 text-xs flex items-start gap-1.5">
+                              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                              <span className="leading-tight">{locationError}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
-                        {locationError && (
-                          <div className="mt-2 p-2 rounded-lg bg-rose-950/70 border border-rose-800/60 text-rose-300 text-xs flex items-start gap-1.5">
-                            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                            <span className="leading-tight">{locationError}</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Manual Distance Range Picker with 10 KM Lock & Unlock */}
+                      {/* Distance Range Picker (or Family Delivery Zone) */}
                       <div className="space-y-2 pt-1">
                         <div className="flex items-center justify-between">
                           <label className="text-[10px] text-neutral-400 uppercase font-bold flex items-center gap-1.5">
-                            {isCustomerOutOfRadius ? (
+                            {isOrderingForFamily ? (
+                              <>
+                                <Heart className="w-3 h-3 text-amber-400 fill-current" />
+                                <span className="text-amber-300">Family Location Distance from Pachikapalem:</span>
+                              </>
+                            ) : isCustomerOutOfRadius ? (
                               <>
                                 <Lock className="w-3 h-3 text-rose-500" />
                                 <span className="text-rose-400">Distance Options Locked (&gt;10 km)</span>
@@ -687,12 +837,12 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                               </>
                             )}
                           </label>
-                          <span className={`text-[10px] font-semibold ${isCustomerOutOfRadius ? 'text-rose-400' : 'text-neutral-500'}`}>
-                            Max limit: 10 km
+                          <span className={`text-[10px] font-semibold ${isOrderingForFamily ? 'text-emerald-400 font-bold' : isCustomerOutOfRadius ? 'text-rose-400' : 'text-neutral-500'}`}>
+                            {isOrderingForFamily ? 'Family Zone' : 'Max limit: 10 km'}
                           </span>
                         </div>
 
-                        {/* If customer is OUT of 10 km radius: Don't show the 3 distance options, lock completely */}
+                        {/* If customer is OUT of 10 km radius and NOT ordering for family: Lock */}
                         {isCustomerOutOfRadius ? (
                           <div className="p-3.5 rounded-xl bg-neutral-950 border border-rose-800/80 space-y-3 shadow-lg">
                             <div className="flex items-center justify-between">
@@ -706,15 +856,37 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                             </div>
 
                             <p className="text-[11px] leading-relaxed text-neutral-300">
-                              The 3 delivery distance options from Pachikapalem are <strong className="text-rose-300">locked and hidden</strong> because your customer location is beyond our 10 km service radius {detectedDistanceKm !== null ? `(${detectedDistanceKm.toFixed(2)} km away)` : '(more than 10 km away)'}.
+                              The 3 delivery distance options from Pachikapalem are <strong className="text-rose-300">locked and hidden</strong> because your location is beyond our 10 km delivery radius {detectedDistanceKm !== null ? `(${detectedDistanceKm.toFixed(2)} km away)` : '(more than 10 km away)'}.
                             </p>
+
+                            {/* Quick Unlock for Family Feature */}
+                            <div className="p-3 rounded-xl bg-gradient-to-r from-amber-950/60 to-neutral-900 border border-amber-500/40 space-y-2">
+                              <div className="flex items-center gap-2 text-amber-300 font-bold text-xs">
+                                <Heart className="w-4 h-4 fill-current text-rose-400 shrink-0" />
+                                <span>Are you ordering for family in Pachikapalem?</span>
+                              </div>
+                              <p className="text-[11px] text-neutral-300 leading-snug">
+                                You can order remotely from anywhere! If your family or relatives live within 10 km of Pachikapalem, enable &quot;Order for Family&quot; to unlock delivery immediately.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsOrderingForFamily(true);
+                                  setSelectedBracket('between_500m_and_6km');
+                                }}
+                                className="w-full py-2 px-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow"
+                              >
+                                <Heart className="w-3.5 h-3.5 fill-current" />
+                                <span>Unlock &amp; Order for Family in Pachikapalem</span>
+                              </button>
+                            </div>
 
                             <div className="p-2.5 rounded-lg bg-rose-950/70 border border-rose-800/80 text-[11px] text-rose-200 flex items-start gap-2">
                               <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
                               <div className="space-y-0.5">
-                                <span className="font-bold text-rose-300 block">How to Unlock:</span>
+                                <span className="font-bold text-rose-300 block">How else to Unlock:</span>
                                 <span>
-                                  Only unlocks if customer is in radius <strong>below 10 km</strong> using <strong>&quot;Auto-Detect & Fill Location (GPS)&quot;</strong> above.
+                                  Unlocks if customer is physically in radius <strong>below 10 km</strong> using <strong>&quot;Auto-Detect &amp; Fill Location (GPS)&quot;</strong> above.
                                 </span>
                               </div>
                             </div>
@@ -734,7 +906,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                                 ) : (
                                   <>
                                     <Compass className="w-3.5 h-3.5" />
-                                    <span>Auto-Detect & Unlock</span>
+                                    <span>Auto-Detect &amp; Unlock</span>
                                   </>
                                 )}
                               </button>
@@ -753,11 +925,16 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                             </div>
                           </div>
                         ) : (
-                          /* Within 10 km radius: Show the 3 distance options */
+                          /* Within 10 km radius OR Ordering for Family: Show the 3 distance options */
                           <div className="space-y-1">
+                            {isOrderingForFamily && (
+                              <p className="text-[10px] text-amber-300/90 pb-1">
+                                Select your family&apos;s distance zone from Pachikapalem:
+                              </p>
+                            )}
                             {DISTANCE_PRESETS.filter((p) => p.id !== 'above_10km').map((preset) => {
-                              const isSelected = selectedBracket === preset.id && detectedDistanceKm === null;
-                              const isAutoActive = selectedBracket === preset.id && detectedDistanceKm !== null;
+                              const isSelected = selectedBracket === preset.id && (isOrderingForFamily || detectedDistanceKm === null);
+                              const isAutoActive = !isOrderingForFamily && selectedBracket === preset.id && detectedDistanceKm !== null;
                               const isUnder500 = preset.id === 'under_500m';
 
                               return (
@@ -811,8 +988,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                           </div>
                         )}
 
-                        {/* Unable to Deliver Alert if customer is > 10 km */}
-                        {isDeliveryAbove10km && !isCustomerOutOfRadius && (
+                        {/* Unable to Deliver Alert if customer is > 10 km (and NOT ordering for family) */}
+                        {isDeliveryAbove10km && !isCustomerOutOfRadius && !isOrderingForFamily && (
                           <div className="p-3 rounded-xl bg-rose-950/90 border border-rose-600/80 text-rose-200 text-xs space-y-1.5 shadow-lg mt-2 animate-fadeIn">
                             <div className="flex items-center gap-1.5 font-bold text-rose-300 text-xs sm:text-sm">
                               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
@@ -833,7 +1010,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                               className="w-full mt-1.5 py-2 px-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                             >
                               <ShoppingBag className="w-3.5 h-3.5" />
-                              <span>Switch to Takeaway & Proceed</span>
+                              <span>Switch to Takeaway &amp; Proceed</span>
                             </button>
                           </div>
                         )}
@@ -843,9 +1020,15 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       <div>
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-[11px] text-neutral-400 block font-medium">
-                            Delivery Address & Landmark
+                            {isOrderingForFamily ? (
+                              <span className="text-amber-300 font-bold">
+                                Family Home Delivery Address in Pachikapalem Area <span className="text-rose-400">*</span>
+                              </span>
+                            ) : (
+                              'Delivery Address & Landmark'
+                            )}
                           </label>
-                          {addressAutoFilled && (
+                          {addressAutoFilled && !isOrderingForFamily && (
                             <span className="text-[9px] text-emerald-300 bg-emerald-950/90 border border-emerald-800/80 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
                               <CheckCircle2 className="w-2.5 h-2.5" /> Auto-Filled from GPS
                             </span>
@@ -858,10 +1041,18 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                             setDeliveryAddress(e.target.value);
                             setAddressAutoFilled(false);
                           }}
-                          placeholder="House/Plot No, Street, Landmark near Pachikapalem..."
-                          className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-amber-500 resize-none"
+                          placeholder={
+                            isOrderingForFamily
+                              ? "House #, Street, Landmark in Pachikapalem (e.g. Near ZP High School / Ramalayam / DCCB Bank)..."
+                              : "House/Plot No, Street, Landmark near Pachikapalem..."
+                          }
+                          className={`w-full bg-neutral-950 border rounded-lg px-3 py-1.5 text-xs text-white placeholder-neutral-600 focus:outline-none resize-none ${
+                            isOrderingForFamily
+                              ? 'border-amber-500/50 focus:border-amber-400'
+                              : 'border-neutral-800 focus:border-amber-500'
+                          }`}
                         />
-                        {addressAutoFilled && (
+                        {addressAutoFilled && !isOrderingForFamily && (
                           <div className="mt-1 flex items-center justify-between text-[10px] text-neutral-400">
                             <span>You can edit or add specific house/flat number</span>
                             <button
@@ -976,7 +1167,14 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-950/60 flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
                   <MessageCircle className="w-5 h-5 fill-current" />
-                  <span>Order via WhatsApp (₹{grandTotal})</span>
+                  {isOrderingForFamily ? (
+                    <span className="flex items-center gap-1.5">
+                      <Heart className="w-4 h-4 fill-current text-rose-300" />
+                      <span>Send Feast to Family via WhatsApp (₹{grandTotal})</span>
+                    </span>
+                  ) : (
+                    <span>Order via WhatsApp (₹{grandTotal})</span>
+                  )}
                 </button>
               )}
 
