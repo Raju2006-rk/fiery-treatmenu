@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { User } from 'firebase/auth';
-import { 
-  initAuth, 
-  googleSignIn, 
-  logout, 
-  getAccessToken, 
-  findOrCreateOrdersSpreadsheet, 
-  appendOrderToGoogleSheet, 
+import {
+  initAuth,
+  googleSignIn,
+  logout,
+  findOrCreateOrdersSpreadsheet,
+  appendOrderToGoogleSheet,
+  appendOrdersBatchToGoogleSheet,
   listGoogleDriveSpreadsheets,
   fetchSpreadsheetDetails,
   getActiveSavedSpreadsheet,
@@ -15,21 +15,23 @@ import {
   getAppsScriptUrl,
   setAppsScriptUrl,
   testAppsScriptConnection,
+  sendOrderToAppsScript,
+  exportOrdersToExcelCsv,
   APPS_SCRIPT_TEMPLATE_CODE,
   APPS_SCRIPT_MANIFEST_CODE,
-  SpreadsheetInfo
+  SpreadsheetInfo,
 } from '../services/googleWorkspace';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { OrderDetails } from '../types';
-import { 
-  FileSpreadsheet, 
-  HardDrive, 
-  RefreshCw, 
-  ExternalLink, 
-  CheckCircle2, 
-  AlertCircle, 
-  LogOut, 
-  ShieldCheck, 
+import {
+  FileSpreadsheet,
+  HardDrive,
+  RefreshCw,
+  ExternalLink,
+  CheckCircle2,
+  AlertCircle,
+  LogOut,
+  ShieldCheck,
   Sparkles,
   Loader2,
   TableProperties,
@@ -39,27 +41,42 @@ import {
   Check,
   Send,
   Zap,
-  HelpCircle,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Download,
+  Clock,
+  ShoppingBag,
 } from 'lucide-react';
 
 interface GoogleWorkspacePanelProps {
   orders?: OrderDetails[];
+  onOrdersSynced?: (
+    orderIds: string[],
+    channel: 'sheets_api' | 'apps_script' | 'both'
+  ) => void;
 }
 
-export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orders = [] }) => {
+export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({
+  orders = [],
+  onOrdersSynced,
+}) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
-  const [activeSheet, setActiveSheet] = useState<SpreadsheetInfo | null>(getActiveSavedSpreadsheet());
+  const [activeSheet, setActiveSheet] = useState<SpreadsheetInfo | null>(
+    getActiveSavedSpreadsheet()
+  );
   const [isLoadingSheet, setIsLoadingSheet] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [driveFiles, setDriveFiles] = useState<Array<{ id: string; name: string; url: string; modifiedTime: string }>>([]);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [driveFiles, setDriveFiles] = useState<
+    Array<{ id: string; name: string; url: string; modifiedTime: string }>
+  >([]);
+  const [confirmAction, setConfirmAction] = useState<
+    null | { mode: 'pending' | 'all' | 'test' }
+  >(null);
 
   // Custom sheet linking state
   const [customSheetInput, setCustomSheetInput] = useState('');
@@ -74,6 +91,12 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
   const [hasCopiedCode, setHasCopiedCode] = useState(false);
   const [scriptViewMode, setScriptViewMode] = useState<'code' | 'manifest'>('code');
   const [hasCopiedManifest, setHasCopiedManifest] = useState(false);
+
+  const pendingOrders = useMemo(
+    () => orders.filter((o) => !o.syncedToSheet),
+    [orders]
+  );
+  const syncedOrdersCount = orders.length - pendingOrders.length;
 
   useEffect(() => {
     const unsubscribe = initAuth(
@@ -100,38 +123,41 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
     try {
       const sheet = await findOrCreateOrdersSpreadsheet(authToken);
       setActiveSheet(sheet);
-      const files = await listGoogleDriveSpreadsheets(authToken);
-      setDriveFiles(files);
-    } catch (err: any) {
-      console.warn('Direct Google Sheet/Drive OAuth access unavailable:', err);
-      const isPolicyOrForbidden = err?.message?.includes('policy') || err?.message?.includes('403') || err?.message?.includes('Insufficient');
-      if (isPolicyOrForbidden) {
-        setErrorMessage(
-          'Google Advanced Protection is active: Direct Google Drive/Sheets OAuth access is protected by your Google Account security policy. Your basic account authentication succeeded! Please use the Google Apps Script Web App below for seamless 24/7 order synchronization without third-party permissions.'
-        );
-      } else {
-        setErrorMessage(err instanceof Error ? err.message : 'Failed to connect to Google Sheets');
+      try {
+        const files = await listGoogleDriveSpreadsheets(authToken);
+        setDriveFiles(files);
+      } catch (driveErr: any) {
+        console.warn('Drive list warning:', driveErr);
+        setDriveFiles([]);
       }
+    } catch (err: any) {
+      console.error('Google Sheets/Drive connection error:', err);
+      setErrorMessage(
+        err instanceof Error
+          ? err.message
+          : 'Failed to connect to Google Sheets & Drive. Please reconnect your Google Account.'
+      );
     } finally {
       setIsLoadingSheet(false);
     }
   };
 
-  const handleSignIn = async () => {
+  const handleSignIn = async (forceConsent = false) => {
     setIsSigningIn(true);
     setErrorMessage('');
+    setSyncStatus('');
     try {
-      const result = await googleSignIn();
+      const result = await googleSignIn(forceConsent);
       if (result) {
         setUser(result.user);
         setToken(result.accessToken);
-        if (result.accessToken) {
-          await loadSpreadsheetAndDrive(result.accessToken);
-        }
+        await loadSpreadsheetAndDrive(result.accessToken);
       }
     } catch (err) {
       console.error('Sign in failed:', err);
-      setErrorMessage(err instanceof Error ? err.message : 'Google authentication failed');
+      setErrorMessage(
+        err instanceof Error ? err.message : 'Google authentication failed'
+      );
     } finally {
       setIsSigningIn(false);
     }
@@ -141,22 +167,23 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
     await logout();
     setUser(null);
     setToken(null);
+    setDriveFiles([]);
     setSyncStatus('');
+    setErrorMessage('');
   };
 
-  // Switch active sheet to one of the user's Drive spreadsheets
-  const handleSelectDriveFile = async (file: { id: string; name: string; url: string }) => {
+  const handleSelectDriveFile = (file: { id: string; name: string; url: string }) => {
     const newSheet: SpreadsheetInfo = {
       id: file.id,
       name: file.name,
-      url: file.url
+      url: file.url,
     };
     setActiveSheet(newSheet);
     setActiveSavedSpreadsheet(newSheet);
     setSyncStatus(`Active spreadsheet switched to: "${file.name}"`);
+    setErrorMessage('');
   };
 
-  // Link custom spreadsheet by URL or ID
   const handleLinkCustomSheet = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customSheetInput.trim()) return;
@@ -180,15 +207,17 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
           setCustomSheetInput('');
         }
       } else {
-        // If not signed in with OAuth, store it for reference
         const manualInfo: SpreadsheetInfo = {
           id: cleanId,
           name: 'Custom Linked Sheet',
-          url: `https://docs.google.com/spreadsheets/d/${cleanId}/edit`
+          url: `https://docs.google.com/spreadsheets/d/${cleanId}/edit`,
         };
         setActiveSheet(manualInfo);
         setActiveSavedSpreadsheet(manualInfo);
-        setCustomLinkStatus('Saved spreadsheet ID! Sign in with your Google Account to authorize sync.');
+        setCustomLinkStatus(
+          'Saved spreadsheet ID! Sign in with Google above to authorize live syncing.'
+        );
+        setCustomSheetInput('');
       }
     } catch (err: any) {
       setErrorMessage(err?.message || 'Failed to verify spreadsheet.');
@@ -197,97 +226,157 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
     }
   };
 
-  // Send a test order row directly to active sheet
-  const handleSendTestRow = async () => {
-    if (!token || !activeSheet) return;
+  const executeConfirmedAction = async () => {
+    const action = confirmAction;
+    setConfirmAction(null);
+    if (!action) return;
 
-    setIsSendingTest(true);
-    setSyncStatus('Sending verification test row to Google Sheet...');
-    setErrorMessage('');
+    if (action.mode === 'test') {
+      if (!token || !activeSheet) return;
+      setIsSendingTest(true);
+      setSyncStatus('Sending verification test row to Google Sheet...');
+      setErrorMessage('');
 
-    const testOrder: OrderDetails = {
-      id: `TEST-${Date.now().toString().slice(-4)}`,
-      items: [
-        {
-          menuItem: {
-            id: 'test-dish',
-            name: 'Chicken Dum Biryani (Test)',
-            category: 'biryani',
-            price: 180,
-            description: 'Test dish for sync verification',
-            image: '',
-            isVeg: false,
-            inStock: true,
-            isBestseller: true,
-            tags: ['test', 'biryani']
+      const testOrder: OrderDetails = {
+        id: `TEST-${Date.now().toString().slice(-4)}`,
+        items: [
+          {
+            menuItem: {
+              id: 'test-dish',
+              name: 'Chicken Dum Biryani (Sync Test)',
+              category: 'biryani',
+              price: 120,
+              description: 'Test dish for sync verification',
+              image: '',
+              isVeg: false,
+              inStock: true,
+              isBestseller: true,
+              tags: ['test', 'biryani'],
+            },
+            quantity: 1,
           },
-          quantity: 1
+        ],
+        orderType: 'takeaway',
+        customerName: user?.displayName || 'Test Order',
+        customerPhone: '9876543210',
+        address: 'Pachikapalem Verification Counter',
+        subtotal: 120,
+        deliveryFee: 0,
+        grandTotal: 120,
+        instructions: 'Google Sheet Sync verification row',
+        timestamp: Date.now(),
+        status: 'new',
+      };
+
+      try {
+        const result = await appendOrderToGoogleSheet(token, activeSheet.id, testOrder);
+        if (result.success) {
+          setSyncStatus(
+            `Verification test row appended to "${activeSheet.name}"! Open the sheet to confirm.`
+          );
+        } else {
+          setErrorMessage(result.error || 'Failed to append test row.');
+          setSyncStatus('');
         }
-      ],
-      orderType: 'takeaway',
-      customerName: user?.displayName || 'Test Order',
-      customerPhone: '9876543210',
-      address: 'Pachikapalem Verification Counter',
-      subtotal: 180,
-      deliveryFee: 0,
-      grandTotal: 180,
-      instructions: 'Google Sheet Sync verification row',
-      timestamp: Date.now(),
-      status: 'new'
-    };
-
-    try {
-      const result = await appendOrderToGoogleSheet(token, activeSheet.id, testOrder);
-      if (result.success) {
-        setSyncStatus(`Verification row sent successfully! Check "${activeSheet.name}" to view the test order.`);
-      } else {
-        setErrorMessage(result.error || 'Failed to append test row.');
+      } catch (err: any) {
+        setErrorMessage(err?.message || 'Error communicating with Google Sheets API.');
+        setSyncStatus('');
+      } finally {
+        setIsSendingTest(false);
       }
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Error communicating with Google Sheets API.');
-    } finally {
-      setIsSendingTest(false);
-    }
-  };
-
-  const triggerSyncWithConfirmation = () => {
-    if (!orders || orders.length === 0) {
-      setSyncStatus('No active orders to sync currently.');
       return;
     }
-    setShowConfirmModal(true);
-  };
 
-  const executeSync = async () => {
-    setShowConfirmModal(false);
-    if (!token || !activeSheet) return;
+    // Sync pending or all orders
+    const targetOrders = action.mode === 'pending' ? pendingOrders : orders;
+    if (targetOrders.length === 0) {
+      setSyncStatus('All orders are already synced!');
+      return;
+    }
+
+    const scriptUrl = getAppsScriptUrl();
+    if (!token && !scriptUrl) {
+      setErrorMessage(
+        'Please sign in with Google or configure a Google Apps Script URL before syncing.'
+      );
+      return;
+    }
 
     setIsSyncing(true);
-    setSyncStatus('Syncing orders to Google Sheet...');
+    setSyncStatus(`Syncing ${targetOrders.length} order(s) to your connected sheet...`);
     setErrorMessage('');
 
     try {
-      let successCount = 0;
-      for (const order of orders) {
-        const res = await appendOrderToGoogleSheet(token, activeSheet.id, order);
-        if (res.success) successCount++;
+      let syncedIds: string[] = [];
+      let skippedCount = 0;
+      let usedSheetsApi = false;
+      let usedAppsScript = false;
+
+      if (token && activeSheet?.id) {
+        const batchRes = await appendOrdersBatchToGoogleSheet(
+          token,
+          activeSheet.id,
+          targetOrders
+        );
+        if (!batchRes.success) {
+          throw new Error(batchRes.error || 'Google Sheets sync failed.');
+        }
+        usedSheetsApi = true;
+        syncedIds = batchRes.appendedIds;
+        skippedCount = batchRes.skippedCount;
+      } else if (scriptUrl) {
+        for (const order of targetOrders) {
+          const ok = await sendOrderToAppsScript(scriptUrl, order);
+          if (ok) syncedIds.push(order.id);
+        }
+        usedAppsScript = syncedIds.length > 0;
       }
-      setSyncStatus(`Successfully pushed ${successCount} order(s) to "${activeSheet.name}"!`);
-    } catch (err) {
+
+      const channel: 'sheets_api' | 'apps_script' | 'both' =
+        usedSheetsApi && usedAppsScript
+          ? 'both'
+          : usedSheetsApi
+          ? 'sheets_api'
+          : 'apps_script';
+
+      const idsToMark =
+        action.mode === 'all' || skippedCount > 0
+          ? targetOrders.map((o) => o.id)
+          : syncedIds;
+
+      if (idsToMark.length > 0) {
+        onOrdersSynced?.(idsToMark, channel);
+      }
+
+      if (syncedIds.length > 0 && skippedCount > 0) {
+        setSyncStatus(
+          `Synced ${syncedIds.length} new order(s) to "${activeSheet?.name || 'Google Sheet'}" (${skippedCount} already in sheet were skipped to prevent duplicates).`
+        );
+      } else if (syncedIds.length > 0) {
+        setSyncStatus(
+          `Successfully synced ${syncedIds.length} order(s) to "${activeSheet?.name || 'Google Sheet'}"!`
+        );
+      } else if (skippedCount > 0) {
+        setSyncStatus(
+          `All ${skippedCount} order(s) are already recorded in "${activeSheet?.name || 'Google Sheet'}" (no duplicates added).`
+        );
+      }
+    } catch (err: any) {
       console.error('Sync failed:', err);
-      setErrorMessage('Failed to sync orders. Please check your network connection.');
+      setErrorMessage(
+        err?.message || 'Failed to sync orders. Please reconnect your Google Account and retry.'
+      );
+      setSyncStatus('');
     } finally {
       setIsSyncing(false);
     }
   };
 
-  // Save Apps Script Web App URL
   const handleSaveAppsScriptUrl = () => {
     setAppsScriptUrl(appsScriptInput);
-    setScriptStatus('Apps Script Webhook URL saved successfully!');
+    setScriptStatus('Apps Script Webhook URL saved! All new customer orders will auto-push 24/7.');
   };
 
-  // Test Apps Script connection
   const handleTestAppsScript = async () => {
     if (!appsScriptInput.trim()) {
       setScriptStatus('Please enter an Apps Script URL first.');
@@ -320,8 +409,11 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
     setTimeout(() => setHasCopiedManifest(false), 2500);
   };
 
+  const canDirectSync = Boolean(token && activeSheet?.id);
+  const hasAppsScript = Boolean(getAppsScriptUrl());
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Top Banner / Auth Card */}
       <div className="p-4 sm:p-5 rounded-2xl bg-neutral-950 border border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
@@ -329,23 +421,33 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
             <FileSpreadsheet className="w-6 h-6" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-display font-bold text-base sm:text-lg text-white">
-                Google Sheets & Workspace Sync
+                Google Sheets &amp; Drive Sync
               </h3>
-              <span className="text-[10px] bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold px-2 py-0.5 rounded-full">
-                Live Cloud Sync
+              <span
+                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                  canDirectSync || hasAppsScript
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                    : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                }`}
+              >
+                {canDirectSync
+                  ? 'Google Connected'
+                  : hasAppsScript
+                  ? '24/7 Webhook Active'
+                  : 'Connect to Sync'}
               </span>
             </div>
             <p className="text-xs text-neutral-400">
-              Synchronize restaurant orders, customer details & delivery records directly into your Google Sheets.
+              Automatically log every customer order into your connected Google Sheet or export to Excel (.csv).
             </p>
           </div>
         </div>
 
         {/* User Auth Info or Sign In button */}
-        <div className="shrink-0 flex items-center gap-3">
-          {user ? (
+        <div className="shrink-0 flex items-center gap-2">
+          {user && token ? (
             <div className="flex items-center gap-3 bg-neutral-900 border border-neutral-800 p-1.5 pl-3 rounded-xl">
               <div className="text-right">
                 <span className="text-xs font-bold text-white block leading-tight">
@@ -367,8 +469,9 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
                 </div>
               )}
               <button
+                type="button"
                 onClick={handleSignOut}
-                className="p-1.5 rounded-lg text-neutral-400 hover:text-rose-400 hover:bg-neutral-800 transition-colors"
+                className="p-1.5 rounded-lg text-neutral-400 hover:text-rose-400 hover:bg-neutral-800 transition-colors cursor-pointer"
                 title="Sign out of Google"
               >
                 <LogOut className="w-4 h-4" />
@@ -376,7 +479,7 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
             </div>
           ) : (
             <GoogleSignInButton
-              onClick={handleSignIn}
+              onClick={() => handleSignIn(false)}
               isLoading={isSigningIn}
               label="Sign in with Google"
             />
@@ -384,19 +487,8 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
         </div>
       </div>
 
-      {/* Google Advanced Protection Notice */}
-      <div className="p-3.5 rounded-2xl bg-blue-950/30 border border-blue-500/30 flex items-start gap-3 text-xs text-blue-200">
-        <ShieldCheck className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-        <div className="space-y-0.5">
-          <span className="font-bold text-white block">Google Advanced Protection Compatible</span>
-          <p className="text-[11px] text-blue-200/90 leading-relaxed">
-            Google Sign-In uses minimal identity permissions (profile &amp; email) to preserve strict account protection. For automated Google Sheets sync without granting third-party Drive permissions, configure the <strong>Google Apps Script Web App</strong> below.
-          </p>
-        </div>
-      </div>
-
-      {/* SECTION 1: ACTIVE GOOGLE SHEET & DIRECT OAUTH SYNC */}
-      <div className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-4">
+      {/* SECTION 1: ACTIVE CONNECTED SPREADSHEET */}
+      <div className="p-4 sm:p-5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <TableProperties className="w-5 h-5 text-emerald-400" />
@@ -405,23 +497,36 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
             </span>
           </div>
 
-          {activeSheet && (
-            <a
-              href={activeSheet.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition-colors"
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => exportOrdersToExcelCsv(orders)}
+              disabled={orders.length === 0}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+              title="Download orders as Excel-compatible CSV file"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span>Open in Google Sheets</span>
-            </a>
-          )}
+              <Download className="w-3.5 h-3.5 text-amber-400" />
+              <span>Export Excel (.csv)</span>
+            </button>
+
+            {activeSheet && (
+              <a
+                href={activeSheet.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition-colors"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open in Google Sheets</span>
+              </a>
+            )}
+          </div>
         </div>
 
         {isLoadingSheet ? (
           <div className="py-6 flex items-center justify-center gap-2 text-neutral-400 text-xs">
             <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
-            <span>Connecting to Google Drive & Sheets...</span>
+            <span>Connecting to Google Drive &amp; Sheets...</span>
           </div>
         ) : activeSheet ? (
           <div className="space-y-3">
@@ -429,23 +534,32 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
               <div className="space-y-0.5">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-bold text-sm text-white">{activeSheet.name}</span>
-                  <span className="px-2 py-0.5 rounded bg-emerald-950 border border-emerald-700/60 text-emerald-300 text-[10px] font-semibold flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" /> Ready for Orders
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 border ${
+                      canDirectSync
+                        ? 'bg-emerald-950 border-emerald-700/60 text-emerald-300'
+                        : 'bg-amber-950 border-amber-700/60 text-amber-300'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3 h-3" />
+                    {canDirectSync ? 'Live Sync Ready' : 'Sign in to Sync'}
                   </span>
                 </div>
                 <p className="text-[11px] text-neutral-400">
-                  Spreadsheet ID: <span className="font-mono text-neutral-300 select-all">{activeSheet.id}</span>
+                  Spreadsheet ID:{' '}
+                  <span className="font-mono text-neutral-300 select-all">
+                    {activeSheet.id}
+                  </span>
                 </p>
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                {user && (
+                {canDirectSync && (
                   <button
                     type="button"
-                    onClick={handleSendTestRow}
+                    onClick={() => setConfirmAction({ mode: 'test' })}
                     disabled={isSendingTest}
                     className="px-3 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-semibold text-xs flex items-center gap-1.5 border border-neutral-700 transition-all cursor-pointer disabled:opacity-50"
-                    title="Send a sample test row to verify sheet write permissions"
                   >
                     {isSendingTest ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -458,8 +572,12 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
 
                 <button
                   type="button"
-                  onClick={triggerSyncWithConfirmation}
-                  disabled={isSyncing || !user}
+                  onClick={() =>
+                    setConfirmAction({
+                      mode: pendingOrders.length > 0 ? 'pending' : 'all',
+                    })
+                  }
+                  disabled={isSyncing || (!canDirectSync && !hasAppsScript) || orders.length === 0}
                   className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-neutral-950 font-bold text-xs flex items-center gap-1.5 shadow transition-all cursor-pointer disabled:opacity-50"
                 >
                   {isSyncing ? (
@@ -470,7 +588,11 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
                   ) : (
                     <>
                       <RefreshCw className="w-3.5 h-3.5" />
-                      <span>Sync Current Orders ({orders.length})</span>
+                      <span>
+                        {pendingOrders.length > 0
+                          ? `Sync Pending Orders (${pendingOrders.length})`
+                          : `Sync All Orders (${orders.length})`}
+                      </span>
                     </>
                   )}
                 </button>
@@ -480,14 +602,14 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
             <div className="text-[11px] text-neutral-400 flex items-center gap-2">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
               <span>
-                12 columns tracked: Timestamp, Order ID, Customer, Phone, Type, Address/Table, Items, Subtotal, Delivery Fee, Grand Total, Instructions, Status.
+                12 columns logged: Timestamp, Order ID, Customer, Phone, Type, Address/Table, Items, Subtotal, Delivery Fee, Grand Total, Instructions, Status.
               </span>
             </div>
           </div>
         ) : (
           <div className="p-4 rounded-xl bg-neutral-900 border border-neutral-800 text-center space-y-2">
             <p className="text-xs text-neutral-400">
-              No active spreadsheet selected yet. Sign in with Google above to automatically find or create your orders spreadsheet, or paste your Google Sheet link below.
+              Sign in with Google above to automatically connect or create your Firey Treat Orders spreadsheet in Google Drive, or paste an existing sheet link below.
             </p>
           </div>
         )}
@@ -501,14 +623,26 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
         )}
 
         {errorMessage && (
-          <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-800/80 text-rose-200 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-            <span>{errorMessage}</span>
+          <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-800/80 text-rose-200 text-xs flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleSignIn(true)}
+              className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] cursor-pointer shrink-0"
+            >
+              Reconnect Google
+            </button>
           </div>
         )}
 
         {/* Link Custom Sheet URL / ID */}
-        <form onSubmit={handleLinkCustomSheet} className="pt-2 border-t border-neutral-800/80 space-y-2">
+        <form
+          onSubmit={handleLinkCustomSheet}
+          className="pt-2 border-t border-neutral-800/80 space-y-2"
+        >
           <label className="text-[11px] text-neutral-400 font-medium flex items-center gap-1.5">
             <Link className="w-3.5 h-3.5 text-amber-400" />
             <span>Target a Specific Google Sheet (Paste URL or ID):</span>
@@ -536,24 +670,90 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
         </form>
       </div>
 
-      {/* SECTION 2: GOOGLE APPS SCRIPT WEB APP (24/7 AUTOMATED SYNC) */}
-      <div className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-4">
+      {/* SECTION 2: LIVE CUSTOMER ORDERS LOG & SYNC STATUS */}
+      <div className="p-4 sm:p-5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
-            <Zap className="w-5 h-5 text-amber-400" />
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-white">
-                  Google Apps Script Web App (24/7 Automated Sync)
-                </span>
-                <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-bold">
-                  Recommended
-                </span>
+            <ShoppingBag className="w-4 h-4 text-amber-400" />
+            <span className="text-sm font-bold text-white">
+              Customer Orders &amp; Sheet Sync Queue ({orders.length})
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-[11px]">
+            <span className="px-2 py-0.5 rounded-full bg-emerald-950 border border-emerald-800 text-emerald-300 font-bold">
+              Synced: {syncedOrdersCount}
+            </span>
+            <span className="px-2 py-0.5 rounded-full bg-amber-950 border border-amber-800 text-amber-300 font-bold">
+              Pending: {pendingOrders.length}
+            </span>
+          </div>
+        </div>
+
+        {orders.length === 0 ? (
+          <p className="text-xs text-neutral-500 py-2">
+            No customer orders recorded yet. Orders placed via the Cart will appear here and sync automatically to your connected Google Sheet.
+          </p>
+        ) : (
+          <div className="max-h-56 overflow-y-auto divide-y divide-neutral-900 border border-neutral-800 rounded-xl">
+            {orders.slice(0, 15).map((order) => (
+              <div
+                key={order.id}
+                className="p-3 bg-neutral-900/50 flex items-center justify-between gap-3 text-xs"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono font-bold text-amber-400">
+                      {order.id}
+                    </span>
+                    <span className="font-semibold text-white truncate">
+                      {order.customerName}
+                    </span>
+                    <span className="text-[10px] text-neutral-400">
+                      ₹{order.grandTotal}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-neutral-400 truncate mt-0.5">
+                    {order.items
+                      .map((i) => `${i.menuItem.name} ×${i.quantity}`)
+                      .join(', ')}
+                  </p>
+                </div>
+
+                <div className="shrink-0">
+                  {order.syncedToSheet ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-950 border border-emerald-700/60 text-emerald-300 text-[10px] font-bold">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Synced
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-950 border border-amber-700/60 text-amber-300 text-[10px] font-bold">
+                      <Clock className="w-3 h-3" />
+                      Pending
+                    </span>
+                  )}
+                </div>
               </div>
-              <p className="text-[11px] text-neutral-400">
-                Pushes orders to your Google Sheet automatically in real time without requiring the owner to be logged in.
-              </p>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* SECTION 3: GOOGLE APPS SCRIPT WEB APP (24/7 AUTOMATED SYNC FOR CUSTOMERS) */}
+      <div className="p-4 sm:p-5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-4">
+        <div className="flex items-center gap-2">
+          <Zap className="w-5 h-5 text-amber-400 shrink-0" />
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-bold text-white">
+                24/7 Customer Order Webhook (Google Apps Script)
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-bold">
+                Works on Any Customer Device
+              </span>
             </div>
+            <p className="text-[11px] text-neutral-400">
+              Recommended so customer orders placed from any phone automatically appear in your Google Sheet even when you are not signed in.
+            </p>
           </div>
         </div>
 
@@ -595,18 +795,21 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
           </div>
 
           {scriptStatus && (
-            <div className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${
-              scriptStatus.includes('success') || scriptStatus.includes('transmitted') || scriptStatus.includes('saved')
-                ? 'bg-emerald-950/80 border border-emerald-800/80 text-emerald-300'
-                : 'bg-rose-950/80 border border-rose-800/80 text-rose-300'
-            }`}>
+            <div
+              className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${
+                scriptStatus.includes('sent') ||
+                scriptStatus.includes('saved') ||
+                scriptStatus.includes('appeared')
+                  ? 'bg-emerald-950/80 border border-emerald-800/80 text-emerald-300'
+                  : 'bg-rose-950/80 border border-rose-800/80 text-rose-300'
+              }`}
+            >
               <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
               <span>{scriptStatus}</span>
             </div>
           )}
         </div>
 
-        {/* Collapsible Apps Script Code & Setup Guide */}
         <div className="pt-2 border-t border-neutral-800/80">
           <button
             type="button"
@@ -615,14 +818,19 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
           >
             <div className="flex items-center gap-2">
               <Code className="w-4 h-4 text-emerald-400" />
-              <span className="font-semibold">View Apps Script Code & 3-Step Setup Guide</span>
+              <span className="font-semibold">
+                View Apps Script Code &amp; 3-Step Setup Guide
+              </span>
             </div>
-            {showScriptCode ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            {showScriptCode ? (
+              <ChevronUp className="w-4 h-4" />
+            ) : (
+              <ChevronDown className="w-4 h-4" />
+            )}
           </button>
 
           {showScriptCode && (
-            <div className="mt-3 p-4 rounded-xl bg-neutral-900/90 border border-neutral-800 space-y-4 text-xs text-neutral-300 animate-in fade-in">
-              {/* Tabs for Code.gs and appsscript.json */}
+            <div className="mt-3 p-4 rounded-xl bg-neutral-900/90 border border-neutral-800 space-y-4 text-xs text-neutral-300">
               <div className="flex items-center justify-between flex-wrap gap-2 border-b border-neutral-800 pb-2.5">
                 <div className="flex items-center gap-1.5 bg-neutral-950 p-1 rounded-xl border border-neutral-800">
                   <button
@@ -634,7 +842,7 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
                         : 'text-neutral-400 hover:text-white'
                     }`}
                   >
-                    Code.gs (Main Script)
+                    Code.gs
                   </button>
                   <button
                     type="button"
@@ -645,7 +853,7 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
                         : 'text-neutral-400 hover:text-white'
                     }`}
                   >
-                    appsscript.json (Manifest)
+                    appsscript.json
                   </button>
                 </div>
 
@@ -655,7 +863,11 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
                     onClick={handleCopyScriptCode}
                     className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
-                    {hasCopiedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    {hasCopiedCode ? (
+                      <Check className="w-3.5 h-3.5" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
                     <span>{hasCopiedCode ? 'Copied Code!' : 'Copy Code.gs'}</span>
                   </button>
                 ) : (
@@ -664,80 +876,48 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
                     onClick={handleCopyManifest}
                     className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
-                    {hasCopiedManifest ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{hasCopiedManifest ? 'Copied Manifest!' : 'Copy Manifest'}</span>
+                    {hasCopiedManifest ? (
+                      <Check className="w-3.5 h-3.5" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                    <span>
+                      {hasCopiedManifest ? 'Copied Manifest!' : 'Copy Manifest'}
+                    </span>
                   </button>
                 )}
               </div>
 
-              {/* Code Previews */}
               <div className="p-3 rounded-lg bg-neutral-950 border border-neutral-800 overflow-x-auto max-h-52 text-[11px] font-mono text-neutral-300 select-all">
-                <pre>{scriptViewMode === 'code' ? APPS_SCRIPT_TEMPLATE_CODE : APPS_SCRIPT_MANIFEST_CODE}</pre>
+                <pre>
+                  {scriptViewMode === 'code'
+                    ? APPS_SCRIPT_TEMPLATE_CODE
+                    : APPS_SCRIPT_MANIFEST_CODE}
+                </pre>
               </div>
 
-              {/* Troubleshooting Warning */}
-              <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs space-y-1.5">
-                <p className="font-bold flex items-center gap-1.5 text-amber-300">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Fixing Error 400 &quot;policy_enforced&quot; &amp; Deployment Failures</span>
-                </p>
-                <ul className="list-disc list-inside space-y-1 text-[11px] text-amber-200/90 leading-relaxed pl-1">
-                  <li>
-                    <strong className="text-white">DO NOT change the Google Cloud Platform (GCP) Project:</strong> In Apps Script Project Settings, leave the GCP Project on <em className="text-amber-300">Default</em>. Do not enter any project numbers!
-                  </li>
-                  <li>
-                    <strong className="text-white">Line 1 has <code>/** @OnlyCurrentDoc */</code>:</strong> This restricts the script to this single spreadsheet so Google Advanced Protection approves it.
-                  </li>
-                  <li>
-                    <strong className="text-white">Delete old deployments:</strong> If you saw an error on a previous attempt, click <strong className="text-white">Deploy &gt; Manage deployments</strong>, click the trash can icon to archive the old one, then click <strong className="text-emerald-400">Deploy &gt; New deployment</strong>.
-                  </li>
-                </ul>
-              </div>
-
-              {/* Step-by-Step Instructions */}
-              <div className="space-y-2 text-[11px] text-neutral-300">
-                <p className="font-bold text-white text-xs">Step-by-step setup instructions:</p>
-                <ol className="list-decimal list-inside space-y-2 pl-1 text-neutral-300 leading-relaxed">
-                  <li>
-                    Open your Google Sheet in Google Drive.
-                  </li>
-                  <li>
-                    Click <strong className="text-white">Extensions &gt; Apps Script</strong>.
-                  </li>
-                  <li>
-                    At the top-left, click on <strong className="text-white">&quot;Untitled project&quot;</strong> and rename it to <strong className="text-amber-300">&quot;Firey Treat Orders Sync&quot;</strong> (Advanced Protection blocks apps with the literal name &quot;Untitled project&quot;).
-                  </li>
-                  <li>
-                    In the Editor (<code className="text-neutral-400">&lt;&gt;</code> icon), delete all default code in <strong className="text-white">Code.gs</strong>, paste the script code from above (making sure <code className="text-emerald-400">/** @OnlyCurrentDoc */</code> is on line 1), and click the <strong className="text-white">Save (💾)</strong> icon.
-                  </li>
-                  <li>
-                    Click the blue <strong className="text-white">Deploy &gt; New deployment</strong> button (top-right).
-                  </li>
-                  <li>
-                    Click the gear icon (⚙️) next to &quot;Select type&quot; and choose <strong className="text-white">Web app</strong>.
-                  </li>
-                  <li>
-                    Set <strong className="text-white">Execute as: Me</strong> and <strong className="text-emerald-400">Who has access: Anyone</strong> (required so live customer orders can reach your sheet).
-                  </li>
-                  <li>
-                    Click <strong className="text-white">Deploy</strong>, then click <strong className="text-white">Authorize access</strong>.
-                  </li>
-                  <li>
-                    Choose your Google Account, click <strong className="text-amber-200">Advanced</strong>, click <strong className="text-amber-200">Go to Firey Treat Orders Sync (unsafe)</strong>, and click <strong className="text-emerald-400">Allow</strong>.
-                  </li>
-                  <li>
-                    Copy the generated <strong className="text-white">Web App URL</strong> (starts with <code className="text-amber-400">https://script.google.com/macros/s/</code> and ends in <code className="text-amber-400">/exec</code>) and paste it into the box above, then click <strong className="text-white">Save URL</strong> and <strong className="text-white">Test Connection</strong>!
-                  </li>
-                </ol>
-              </div>
+              <ol className="list-decimal list-inside space-y-1.5 text-[11px] text-neutral-300 leading-relaxed">
+                <li>
+                  Open your Google Sheet and click{' '}
+                  <strong className="text-white">Extensions &gt; Apps Script</strong>.
+                </li>
+                <li>
+                  Paste <strong className="text-white">Code.gs</strong> above, click Save, then click{' '}
+                  <strong className="text-white">Deploy &gt; New deployment &gt; Web app</strong>.
+                </li>
+                <li>
+                  Set <strong className="text-white">Execute as: Me</strong> and{' '}
+                  <strong className="text-emerald-400">Who has access: Anyone</strong>, authorize, and paste the <code className="text-amber-300">/exec</code> URL above.
+                </li>
+              </ol>
             </div>
           )}
         </div>
       </div>
 
-      {/* SECTION 3: RECENT SPREADSHEETS IN GOOGLE DRIVE */}
-      {user && (
-        <div className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3">
+      {/* SECTION 4: SPREADSHEETS IN GOOGLE DRIVE */}
+      {user && token && (
+        <div className="p-4 sm:p-5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <HardDrive className="w-4 h-4 text-blue-400" />
@@ -747,7 +927,7 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
             </div>
             <button
               type="button"
-              onClick={() => token && loadSpreadsheetAndDrive(token)}
+              onClick={() => loadSpreadsheetAndDrive(token)}
               className="text-[11px] text-neutral-400 hover:text-white flex items-center gap-1 cursor-pointer"
             >
               <RefreshCw className="w-3 h-3" /> Refresh
@@ -755,7 +935,7 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
           </div>
 
           {driveFiles.length > 0 ? (
-            <div className="divide-y divide-neutral-900 border border-neutral-800 rounded-xl overflow-hidden">
+            <div className="divide-y divide-neutral-900 border border-neutral-800 rounded-xl overflow-hidden max-h-60 overflow-y-auto">
               {driveFiles.map((file) => {
                 const isCurrentActive = activeSheet?.id === file.id;
                 return (
@@ -767,7 +947,9 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
                       <FileSpreadsheet className="w-4 h-4 text-emerald-400 shrink-0" />
                       <div className="truncate">
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-neutral-200 truncate">{file.name}</span>
+                          <span className="font-semibold text-neutral-200 truncate">
+                            {file.name}
+                          </span>
                           {isCurrentActive && (
                             <span className="px-1.5 py-0.2 rounded bg-emerald-950 border border-emerald-700/60 text-emerald-300 text-[9px] font-bold shrink-0">
                               Active
@@ -808,14 +990,14 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
             </div>
           ) : (
             <p className="text-xs text-neutral-500 italic py-2">
-              No recent spreadsheets found in Drive.
+              No spreadsheets found in Drive yet. Click Refresh or create a sheet above.
             </p>
           )}
         </div>
       )}
 
-      {/* Confirmation Modal for Mutating/Destructive Operation */}
-      {showConfirmModal && (
+      {/* Explicit Confirmation Modal for Mutating Google Sheets Operations */}
+      {confirmAction && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-neutral-900 border border-neutral-800 rounded-2xl p-5 shadow-2xl space-y-4 text-white">
             <div className="flex items-center gap-3">
@@ -824,32 +1006,44 @@ export const GoogleWorkspacePanel: React.FC<GoogleWorkspacePanelProps> = ({ orde
               </div>
               <div>
                 <h4 className="font-bold text-base text-white">
-                  Confirm Google Sheets Sync
+                  {confirmAction.mode === 'test'
+                    ? 'Confirm Test Row Write'
+                    : 'Confirm Google Sheets Sync'}
                 </h4>
                 <p className="text-xs text-neutral-400">
-                  Update &quot;{activeSheet?.name}&quot; with {orders.length} order(s)?
+                  {confirmAction.mode === 'test'
+                    ? `Append 1 verification row to "${activeSheet?.name}"?`
+                    : `Append ${
+                        confirmAction.mode === 'pending'
+                          ? pendingOrders.length
+                          : orders.length
+                      } order(s) to "${activeSheet?.name || 'Connected Google Sheet'}"?`}
                 </p>
               </div>
             </div>
 
             <p className="text-xs text-neutral-300 leading-relaxed bg-neutral-950 p-3 rounded-xl border border-neutral-800">
-              This will append {orders.length} order record(s) including customer names, phone numbers, dishes, delivery fees, and totals directly into your Google Spreadsheet.
+              {confirmAction.mode === 'test'
+                ? 'This will write a single sample verification order row into your connected Google Spreadsheet so you can confirm live write access.'
+                : 'This will append customer order details (names, phone numbers, items, fees, and totals) to your Google Spreadsheet while automatically skipping Order IDs already recorded in the sheet.'}
             </p>
 
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setShowConfirmModal(false)}
+                onClick={() => setConfirmAction(null)}
                 className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={executeSync}
+                onClick={executeConfirmedAction}
                 className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold cursor-pointer"
               >
-                Confirm & Sync to Google Sheets
+                {confirmAction.mode === 'test'
+                  ? 'Confirm & Send Test Row'
+                  : 'Confirm & Sync to Sheet'}
               </button>
             </div>
           </div>

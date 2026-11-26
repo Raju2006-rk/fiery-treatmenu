@@ -33,7 +33,12 @@ import {
   EyeOff,
   Lock,
   KeyRound,
-  ShieldCheck
+  ShieldCheck,
+  ArrowDown,
+  ArrowUp,
+  ChevronsDown,
+  ChevronsUp,
+  UtensilsCrossed
 } from 'lucide-react';
 import { OrderDetails } from '../types';
 import { GoogleWorkspacePanel } from './GoogleWorkspacePanel';
@@ -54,6 +59,11 @@ interface AdminPanelModalProps {
   onDeleteItem: (itemId: string) => void;
   onResetMenu: () => void;
   orders?: OrderDetails[];
+  onUpdateOrderStatus?: (orderId: string, newStatus: OrderDetails['status']) => void;
+  onOrdersSynced?: (
+    orderIds: string[],
+    channel: 'sheets_api' | 'apps_script' | 'both'
+  ) => void;
 }
 
 export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
@@ -65,6 +75,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   onDeleteItem,
   onResetMenu,
   orders = [],
+  onOrdersSynced,
 }) => {
   const [activeTab, setActiveTab] = useState<'menu' | 'google_workspace' | 'security'>('menu');
   const [search, setSearch] = useState('');
@@ -106,6 +117,32 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   const [editingImageItem, setEditingImageItem] = useState<MenuItem | null>(null);
   const [editImageUrl, setEditImageUrl] = useState('');
   const editFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Scroll navigation refs for Menu Dishes CMS
+  const cmsScrollContainerRef = useRef<HTMLDivElement>(null);
+  const dishesListAnchorRef = useRef<HTMLDivElement>(null);
+
+  const scrollCmsBy = (deltaY: number) => {
+    cmsScrollContainerRef.current?.scrollBy({ top: deltaY, behavior: 'smooth' });
+  };
+
+  const scrollToDishesList = () => {
+    if (dishesListAnchorRef.current && cmsScrollContainerRef.current) {
+      const containerTop = cmsScrollContainerRef.current.getBoundingClientRect().top;
+      const anchorTop = dishesListAnchorRef.current.getBoundingClientRect().top;
+      const offset = anchorTop - containerTop + cmsScrollContainerRef.current.scrollTop - 8;
+      cmsScrollContainerRef.current.scrollTo({ top: offset, behavior: 'smooth' });
+    }
+  };
+
+  const scrollCmsToEdge = (edge: 'top' | 'bottom') => {
+    const el = cmsScrollContainerRef.current;
+    if (!el) return;
+    el.scrollTo({
+      top: edge === 'top' ? 0 : el.scrollHeight,
+      behavior: 'smooth',
+    });
+  };
 
   // Category counts for owner navigation extension
   const categoryCounts = useMemo(() => {
@@ -407,8 +444,11 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         </div>
 
         {activeTab === 'google_workspace' ? (
-          <div className="flex-1 overflow-y-auto pr-1">
-            <GoogleWorkspacePanel orders={orders} />
+          <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+            <GoogleWorkspacePanel
+              orders={orders}
+              onOrdersSynced={onOrdersSynced}
+            />
           </div>
         ) : activeTab === 'security' ? (
           <div className="flex-1 overflow-y-auto pr-1 space-y-5">
@@ -583,8 +623,12 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
           </div>
         ) : (
           <>
+        <div
+          ref={cmsScrollContainerRef}
+          className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-4 scroll-smooth"
+        >
         {/* Delivery Radius & WhatsApp Ordering Configuration Info for Owner */}
-        <div className="p-3 sm:p-3.5 rounded-2xl bg-neutral-950 border border-neutral-800 flex items-center justify-between flex-wrap gap-3 text-xs shrink-0">
+        <div className="p-3 sm:p-3.5 rounded-2xl bg-neutral-950 border border-neutral-800 flex items-center justify-between flex-wrap gap-3 text-xs">
           <div className="flex items-center gap-2.5">
             <span className="p-2 rounded-xl bg-emerald-950/80 border border-emerald-800/60 text-emerald-400 shrink-0">
               <Truck className="w-4 h-4" />
@@ -618,7 +662,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         {/* ========================================================
             OWNER DISHES NAVIGATION EXTENSION
             ======================================================== */}
-        <div className="space-y-3 bg-neutral-950 p-3.5 rounded-2xl border border-neutral-800 shrink-0">
+        <div className="space-y-3 bg-neutral-950 p-3.5 rounded-2xl border border-neutral-800">
           
           {/* Top Bar: Search, View Mode (Visual Cards vs Table), Sort, and Add Dish */}
           <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
@@ -730,14 +774,17 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 <button
                   key={c.id}
                   type="button"
-                  onClick={() => setSelectedCat(c.id)}
+                  onClick={() => {
+                    setSelectedCat(c.id);
+                    window.setTimeout(() => scrollToDishesList(), 60);
+                  }}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
                     isSelected
                       ? 'bg-amber-500 text-neutral-950 shadow-md ring-2 ring-amber-400/30'
                       : 'bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800'
                   }`}
                 >
-                  <span>{c.icon}</span>
+                  <UtensilsCrossed className="w-3 h-3 opacity-80" />
                   <span>{c.shortName}</span>
                   <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
                     isSelected ? 'bg-neutral-950 text-amber-400' : 'bg-neutral-800 text-neutral-400'
@@ -1077,10 +1124,71 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         )}
 
         {/* ========================================================
+            STICKY DISHES SCROLL & JUMP NAVIGATION BAR
+            ======================================================== */}
+        <div
+          ref={dishesListAnchorRef}
+          className="sticky top-0 z-20 flex items-center justify-between flex-wrap gap-2 px-3.5 py-2.5 rounded-2xl bg-neutral-900/95 backdrop-blur-md border border-amber-500/30 shadow-lg text-xs"
+        >
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-amber-500/15 text-amber-400">
+              <UtensilsCrossed className="w-3.5 h-3.5" />
+            </span>
+            <div>
+              <span className="font-bold text-white">
+                Dishes &amp; Items ({filteredItems.length})
+              </span>
+              <span className="hidden sm:inline text-[11px] text-neutral-400 ml-2">
+                Use scroll controls to browse &amp; edit all menu dishes
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => scrollCmsBy(380)}
+              className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer shadow-sm"
+              title="Scroll down to view more dishes"
+            >
+              <ArrowDown className="w-3.5 h-3.5" />
+              <span>Scroll Down</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollCmsBy(-380)}
+              className="px-2.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-semibold text-[11px] inline-flex items-center gap-1 border border-neutral-700 transition-colors cursor-pointer"
+              title="Scroll up"
+            >
+              <ArrowUp className="w-3.5 h-3.5" />
+              <span>Scroll Up</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollCmsToEdge('top')}
+              className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-amber-400 border border-neutral-700 transition-colors cursor-pointer"
+              title="Jump to top (filters & search)"
+              aria-label="Jump to top"
+            >
+              <ChevronsUp className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollCmsToEdge('bottom')}
+              className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-amber-400 border border-neutral-700 transition-colors cursor-pointer"
+              title="Jump to bottom of dishes list"
+              aria-label="Jump to bottom"
+            >
+              <ChevronsDown className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* ========================================================
             DISHES DISPLAY AREA (Visual Cards Grid vs Table View)
             ======================================================== */}
         {viewMode === 'grid' ? (
-          <div className="flex-1 overflow-y-auto pr-1">
+          <div className="pb-2">
             {filteredItems.length === 0 ? (
               <div className="p-12 text-center text-neutral-500 rounded-2xl border border-neutral-800 bg-neutral-950">
                 <Flame className="w-10 h-10 mx-auto mb-2 text-neutral-600 animate-pulse" />
@@ -1303,7 +1411,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
           </div>
         ) : (
           /* Scrollable Items Table */
-          <div className="flex-1 overflow-y-auto rounded-2xl border border-neutral-800 bg-neutral-950">
+          <div className="overflow-x-auto rounded-2xl border border-neutral-800 bg-neutral-950">
             <table className="w-full text-left text-xs border-collapse">
               <thead className="sticky top-0 bg-neutral-900 text-neutral-400 font-bold uppercase tracking-wider border-b border-neutral-800 z-10">
                 <tr>
@@ -1481,18 +1589,29 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             </table>
           </div>
         )}
+        </div>
 
         {/* Footer info note */}
-        <div className="pt-2 border-t border-neutral-800 flex items-center justify-between text-xs text-neutral-400 shrink-0">
+        <div className="pt-2 border-t border-neutral-800 flex items-center justify-between flex-wrap gap-2 text-xs text-neutral-400 shrink-0">
           <span>
             Showing {filteredItems.length} of {items.length} items. All modifications persist instantly to your browser.
           </span>
-          <button
-            onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold"
-          >
-            Done Editing
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={scrollToDishesList}
+              className="px-3 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-amber-400 font-semibold inline-flex items-center gap-1 cursor-pointer"
+            >
+              <ArrowDown className="w-3.5 h-3.5" />
+              <span>Browse Dishes</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold cursor-pointer"
+            >
+              Done Editing
+            </button>
+          </div>
         </div>
         </>
         )}

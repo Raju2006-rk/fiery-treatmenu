@@ -52,6 +52,9 @@ export interface OrderDetails {
   grandTotal: number;
   timestamp: number;
   status: 'new' | 'preparing' | 'dispatched' | 'completed';
+  syncedToSheet?: boolean;
+  syncedAt?: number;
+  syncChannel?: 'sheets_api' | 'apps_script' | 'both';
 }
 
 export interface CategoryMeta {

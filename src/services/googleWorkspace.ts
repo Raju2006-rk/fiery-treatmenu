@@ -1,51 +1,62 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { 
-  getAuth, 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  onAuthStateChanged, 
-  User, 
-  signOut 
+import {
+  getAuth,
+  signInWithPopup,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  User,
+  signOut,
 } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { OrderDetails } from '../types';
 
-// Load Firebase configuration from environment variables (Vercel) with fallback to applet config
+// Load Firebase configuration from environment variables with fallback to applet config
 const firebaseProjectConfig = {
-  apiKey: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_API_KEY) || firebaseConfig.apiKey,
-  authDomain: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN) || firebaseConfig.authDomain,
-  projectId: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_PROJECT_ID) || firebaseConfig.projectId,
-  storageBucket: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET) || firebaseConfig.storageBucket,
-  messagingSenderId: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID) || firebaseConfig.messagingSenderId,
-  appId: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_APP_ID) || firebaseConfig.appId,
+  apiKey:
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_API_KEY) ||
+    firebaseConfig.apiKey,
+  authDomain:
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN) ||
+    firebaseConfig.authDomain,
+  projectId:
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_PROJECT_ID) ||
+    firebaseConfig.projectId,
+  storageBucket:
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET) ||
+    firebaseConfig.storageBucket,
+  messagingSenderId:
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID) ||
+    firebaseConfig.messagingSenderId,
+  appId:
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_APP_ID) ||
+    firebaseConfig.appId,
 };
 
 // Ensure singleton Firebase App
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseProjectConfig);
 export const auth = getAuth(app);
 
-// Optional Google Workspace Scopes (for direct client-side Google Sheets OAuth)
+// Google Workspace Scopes for Sheets & Drive integration
 export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
   'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/drive.readonly'
+  'https://www.googleapis.com/auth/drive.readonly',
 ];
 
-// Default provider uses ONLY standard minimum OpenID Connect scopes (openid, profile, email)
-// This strictly complies with Google Advanced Protection and prevents '400 policy_enforced' errors.
 export const authProvider = new GoogleAuthProvider();
+WORKSPACE_SCOPES.forEach((scope) => authProvider.addScope(scope));
 authProvider.setCustomParameters({
-  prompt: 'select_account'
+  prompt: 'select_account',
 });
 
-const TOKEN_KEY = 'ft_google_access_token';
-const TOKEN_TIME_KEY = 'ft_google_token_time';
-const TOKEN_TTL_MS = 50 * 60 * 1000; // 50 minutes (Google tokens expire in 60m)
 export const SPREADSHEET_STORAGE_KEY = 'firey_treat_active_spreadsheet';
 export const APPS_SCRIPT_URL_KEY = 'firey_treat_apps_script_url';
 
+// Strictly in-memory OAuth access token cache (never persisted to localStorage/sessionStorage)
+const TOKEN_TTL_MS = 50 * 60 * 1000;
 let isSigningIn = false;
 let cachedAccessToken: string | null = null;
+let cachedTokenExpiresAt = 0;
 
 export interface SpreadsheetInfo {
   id: string;
@@ -55,30 +66,37 @@ export interface SpreadsheetInfo {
 
 export const SPREADSHEET_NAME = 'Firey Treat Restaurant - Orders & Sales Log';
 
+const ORDER_SHEET_HEADERS = [
+  'Timestamp',
+  'Order ID',
+  'Customer Name',
+  'Phone Number',
+  'Order Type',
+  'Address / Table',
+  'Items Summary',
+  'Subtotal (₹)',
+  'Delivery Fee (₹)',
+  'Grand Total (₹)',
+  'Kitchen Instructions',
+  'Status',
+];
+
 // ============================================================
-// TOKEN & AUTH LIFECYCLE
+// TOKEN & AUTH LIFECYCLE (IN-MEMORY ONLY)
 // ============================================================
 
 export const getAccessToken = async (): Promise<string | null> => {
-  if (cachedAccessToken) return cachedAccessToken;
-
-  try {
-    const stored = sessionStorage.getItem(TOKEN_KEY);
-    const storedTime = sessionStorage.getItem(TOKEN_TIME_KEY);
-    if (stored && storedTime) {
-      const elapsed = Date.now() - parseInt(storedTime, 10);
-      if (elapsed < TOKEN_TTL_MS) {
-        cachedAccessToken = stored;
-        return cachedAccessToken;
-      } else {
-        sessionStorage.removeItem(TOKEN_KEY);
-        sessionStorage.removeItem(TOKEN_TIME_KEY);
-      }
-    }
-  } catch (err) {
-    console.warn('SessionStorage read issue:', err);
+  if (cachedAccessToken && Date.now() < cachedTokenExpiresAt) {
+    return cachedAccessToken;
   }
+  cachedAccessToken = null;
+  cachedTokenExpiresAt = 0;
   return null;
+};
+
+export const clearCachedAccessToken = () => {
+  cachedAccessToken = null;
+  cachedTokenExpiresAt = 0;
 };
 
 export const initAuth = (
@@ -89,66 +107,64 @@ export const initAuth = (
     if (user) {
       const token = await getAccessToken();
       if (token) {
-        if (onAuthSuccess) onAuthSuccess(user, token);
+        onAuthSuccess?.(user, token);
       } else if (!isSigningIn) {
-        if (onAuthFailure) onAuthFailure();
+        clearCachedAccessToken();
+        onAuthFailure?.();
       }
     } else {
-      cachedAccessToken = null;
-      try {
-        sessionStorage.removeItem(TOKEN_KEY);
-        sessionStorage.removeItem(TOKEN_TIME_KEY);
-      } catch {}
-      if (onAuthFailure) onAuthFailure();
+      clearCachedAccessToken();
+      onAuthFailure?.();
     }
   });
 };
 
-export const googleSignIn = async (): Promise<{ user: User; accessToken: string | null } | null> => {
+export const googleSignIn = async (
+  forceConsent = false
+): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, authProvider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    const accessToken = credential?.accessToken || null;
+    const provider = new GoogleAuthProvider();
+    WORKSPACE_SCOPES.forEach((scope) => provider.addScope(scope));
+    provider.setCustomParameters({
+      prompt: forceConsent ? 'consent select_account' : 'select_account',
+    });
 
-    if (accessToken) {
-      cachedAccessToken = accessToken;
-      try {
-        sessionStorage.setItem(TOKEN_KEY, accessToken);
-        sessionStorage.setItem(TOKEN_TIME_KEY, Date.now().toString());
-      } catch (e) {
-        console.warn('Could not cache access token:', e);
-      }
+    const result = await signInWithPopup(auth, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (!credential?.accessToken) {
+      throw new Error('Could not obtain a Google Workspace access token. Please try signing in again.');
     }
 
-    return { user: result.user, accessToken };
+    cachedAccessToken = credential.accessToken;
+    cachedTokenExpiresAt = Date.now() + TOKEN_TTL_MS;
+    return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
     console.error('Google Sign In error:', error);
     const errMessage = error?.message || '';
 
-    // Handle Google Advanced Protection policy_enforced error specifically
     if (errMessage.includes('policy_enforced') || error?.code === 'auth/policy-enforced') {
       throw new Error(
-        'Google Advanced Protection has restricted third-party access for this account. Your account security remains strictly preserved. You can sign in using your Owner Security PIN, or use the Google Apps Script Web App for automated Sheets sync without third-party permissions.'
+        'Google Advanced Protection restricted direct Sheets access on this account. You can use the Google Apps Script Web App option below for automated 24/7 order logging.'
       );
     }
-
-    // Handle Vercel domain not yet whitelisted in Firebase Console
     if (error?.code === 'auth/unauthorized-domain') {
-      const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'your-domain.vercel.app';
+      const currentHost =
+        typeof window !== 'undefined' ? window.location.hostname : 'this domain';
       throw new Error(
-        `Domain unauthorized: "${currentHost}" is not listed in your Firebase project authorized domains. Please add "${currentHost}" in Firebase Console -> Authentication -> Settings -> Authorized domains.`
+        `Domain unauthorized: "${currentHost}" is not listed in Firebase Authorized Domains.`
       );
     }
-
     if (error?.code === 'auth/popup-closed-by-user') {
-      throw new Error('Sign-in popup was closed before completion. Please try signing in again.');
+      throw new Error('Sign-in popup was closed before completion. Please try again.');
     }
     if (error?.code === 'auth/popup-blocked') {
-      throw new Error('Sign-in popup was blocked by your browser. Please allow popups for this site and retry.');
+      throw new Error(
+        'Sign-in popup was blocked by your browser. Please allow popups for this site and retry.'
+      );
     }
     if (error?.code === 'auth/cancelled-popup-request') {
-      throw new Error('Sign-in was cancelled due to another popup attempt. Please try again.');
+      throw new Error('Another sign-in popup was opened. Please try again.');
     }
     throw error;
   } finally {
@@ -156,48 +172,18 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
   }
 };
 
-/**
- * Optional: Incremental consent flow for Google Sheets & Drive scopes.
- * If the user's account is enrolled in Advanced Protection, this will be blocked by Google
- * with 'policy_enforced', in which case the user should use the Google Apps Script Web App.
- */
 export const requestDirectGoogleWorkspaceScopes = async (): Promise<string | null> => {
-  try {
-    const wsProvider = new GoogleAuthProvider();
-    WORKSPACE_SCOPES.forEach((scope) => wsProvider.addScope(scope));
-    wsProvider.setCustomParameters({ prompt: 'consent' });
-    const result = await signInWithPopup(auth, wsProvider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (credential?.accessToken) {
-      cachedAccessToken = credential.accessToken;
-      try {
-        sessionStorage.setItem(TOKEN_KEY, credential.accessToken);
-        sessionStorage.setItem(TOKEN_TIME_KEY, Date.now().toString());
-      } catch {}
-      return credential.accessToken;
-    }
-    return null;
-  } catch (err: any) {
-    if (err?.message?.includes('policy_enforced') || err?.code === 'auth/policy-enforced') {
-      throw new Error(
-        'Google Advanced Protection prevents third-party apps from accessing your Google Drive/Sheets. Please use the Google Apps Script Web App method below for automated order logging without third-party OAuth permissions.'
-      );
-    }
-    throw err;
-  }
+  const res = await googleSignIn(true);
+  return res?.accessToken || null;
 };
 
 export const logout = async () => {
   await signOut(auth);
-  cachedAccessToken = null;
-  try {
-    sessionStorage.removeItem(TOKEN_KEY);
-    sessionStorage.removeItem(TOKEN_TIME_KEY);
-  } catch {}
+  clearCachedAccessToken();
 };
 
 // ============================================================
-// SPREADSHEET STORAGE & EXTRACTION
+// SPREADSHEET STORAGE & HELPERS
 // ============================================================
 
 export function getActiveSavedSpreadsheet(): SpreadsheetInfo | null {
@@ -222,13 +208,34 @@ export function setActiveSavedSpreadsheet(sheet: SpreadsheetInfo | null) {
 
 export function extractSpreadsheetId(input: string): string {
   const trimmed = input.trim();
-  // Match https://docs.google.com/spreadsheets/d/{id}/...
   const urlMatch = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   if (urlMatch && urlMatch[1]) {
     return urlMatch[1];
   }
-  // Otherwise if already pure ID
   return trimmed;
+}
+
+function quoteSheetTab(tabTitle: string): string {
+  return `'${tabTitle.replace(/'/g, "''")}'`;
+}
+
+function parseGoogleApiError(status: number, rawBody: string): string {
+  try {
+    const parsed = JSON.parse(rawBody);
+    const msg = parsed?.error?.message;
+    if (status === 401) {
+      clearCachedAccessToken();
+      return 'Your Google session expired. Please click "Sign in with Google" to reconnect.';
+    }
+    if (status === 403) {
+      return (
+        msg ||
+        'Permission denied by Google Sheets/Drive. Please reconnect and grant Sheets & Drive permissions.'
+      );
+    }
+    if (msg) return msg;
+  } catch {}
+  return rawBody || `Google API request failed (HTTP ${status})`;
 }
 
 export async function fetchSpreadsheetDetails(
@@ -238,21 +245,27 @@ export async function fetchSpreadsheetDetails(
   const id = extractSpreadsheetId(spreadsheetId);
   if (!id) return null;
 
-  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}?fields=spreadsheetId,properties(title),spreadsheetUrl`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+      id
+    )}?fields=spreadsheetId,properties(title),spreadsheetUrl`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
 
   if (!res.ok) {
     const errText = await res.text();
-    console.error('Failed to fetch spreadsheet details:', errText);
-    throw new Error(`Cannot access spreadsheet with ID "${id}". Make sure your Google Account has permission.`);
+    throw new Error(parseGoogleApiError(res.status, errText));
   }
 
   const data = await res.json();
   return {
     id: data.spreadsheetId,
     name: data.properties?.title || 'Connected Spreadsheet',
-    url: data.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${data.spreadsheetId}/edit`
+    url:
+      data.spreadsheetUrl ||
+      `https://docs.google.com/spreadsheets/d/${data.spreadsheetId}/edit`,
   };
 }
 
@@ -264,8 +277,11 @@ export async function findOrCreateOrdersSpreadsheet(
   token: string,
   preferredId?: string
 ): Promise<SpreadsheetInfo> {
-  // 1. If preferred or active sheet is already saved and accessible, return it
-  const targetId = preferredId ? extractSpreadsheetId(preferredId) : getActiveSavedSpreadsheet()?.id;
+  // 1. Verify preferred or already saved spreadsheet first
+  const targetId = preferredId
+    ? extractSpreadsheetId(preferredId)
+    : getActiveSavedSpreadsheet()?.id;
+
   if (targetId) {
     try {
       const details = await fetchSpreadsheetDetails(token, targetId);
@@ -274,19 +290,25 @@ export async function findOrCreateOrdersSpreadsheet(
         return details;
       }
     } catch (e) {
-      console.warn('Saved spreadsheet could not be verified, continuing discovery:', e);
+      console.warn('Saved spreadsheet could not be verified, searching Drive:', e);
     }
   }
 
-  // 2. Search Google Drive for existing sheet by name
+  // 2. Search Google Drive for existing Firey Treat spreadsheet by name
   try {
-    const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name='${encodeURIComponent(
-      SPREADSHEET_NAME
-    )}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false&fields=files(id,name,webViewLink)`;
-
-    const searchRes = await fetch(searchUrl, {
-      headers: { Authorization: `Bearer ${token}` }
+    const escapedName = SPREADSHEET_NAME.replace(/'/g, "\\'");
+    const params = new URLSearchParams({
+      q: `name='${escapedName}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`,
+      fields: 'files(id,name,webViewLink)',
+      pageSize: '5',
     });
+
+    const searchRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files?${params.toString()}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
 
     if (searchRes.ok) {
       const data = await searchRes.json();
@@ -295,34 +317,41 @@ export async function findOrCreateOrdersSpreadsheet(
         const info: SpreadsheetInfo = {
           id: existing.id,
           name: existing.name,
-          url: existing.webViewLink || `https://docs.google.com/spreadsheets/d/${existing.id}/edit`
+          url:
+            existing.webViewLink ||
+            `https://docs.google.com/spreadsheets/d/${existing.id}/edit`,
         };
         setActiveSavedSpreadsheet(info);
         return info;
       }
+    } else if (searchRes.status === 401) {
+      throw new Error(parseGoogleApiError(searchRes.status, await searchRes.text()));
     }
-  } catch (driveErr) {
-    console.warn('Drive search not available or failed:', driveErr);
+  } catch (driveErr: any) {
+    if (driveErr?.message?.includes('session expired')) {
+      throw driveErr;
+    }
+    console.warn('Drive search warning:', driveErr);
   }
 
-  // 3. Create new Google Spreadsheet with structured headers
+  // 3. Create new Google Spreadsheet with structured Orders headers
   const createRes = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     },
     body: JSON.stringify({
       properties: {
-        title: SPREADSHEET_NAME
+        title: SPREADSHEET_NAME,
       },
       sheets: [
         {
           properties: {
             title: 'Orders',
             gridProperties: {
-              frozenRowCount: 1
-            }
+              frozenRowCount: 1,
+            },
           },
           data: [
             {
@@ -330,64 +359,158 @@ export async function findOrCreateOrdersSpreadsheet(
               startColumn: 0,
               rowData: [
                 {
-                  values: [
-                    { userEnteredValue: { stringValue: 'Timestamp' } },
-                    { userEnteredValue: { stringValue: 'Order ID' } },
-                    { userEnteredValue: { stringValue: 'Customer Name' } },
-                    { userEnteredValue: { stringValue: 'Phone Number' } },
-                    { userEnteredValue: { stringValue: 'Order Type' } },
-                    { userEnteredValue: { stringValue: 'Address / Table' } },
-                    { userEnteredValue: { stringValue: 'Items Summary' } },
-                    { userEnteredValue: { stringValue: 'Subtotal (₹)' } },
-                    { userEnteredValue: { stringValue: 'Delivery Fee (₹)' } },
-                    { userEnteredValue: { stringValue: 'Grand Total (₹)' } },
-                    { userEnteredValue: { stringValue: 'Kitchen Instructions' } },
-                    { userEnteredValue: { stringValue: 'Status' } }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    })
+                  values: ORDER_SHEET_HEADERS.map((h) => ({
+                    userEnteredValue: { stringValue: h },
+                  })),
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }),
   });
 
   if (!createRes.ok) {
     const errText = await createRes.text();
-    throw new Error(`Failed to create Google Spreadsheet: ${errText}`);
+    throw new Error(parseGoogleApiError(createRes.status, errText));
   }
 
   const createdData = await createRes.json();
   const info: SpreadsheetInfo = {
     id: createdData.spreadsheetId,
     name: SPREADSHEET_NAME,
-    url: createdData.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${createdData.spreadsheetId}/edit`
+    url:
+      createdData.spreadsheetUrl ||
+      `https://docs.google.com/spreadsheets/d/${createdData.spreadsheetId}/edit`,
   };
   setActiveSavedSpreadsheet(info);
   return info;
 }
 
 // ============================================================
-// SMART ROW APPENDING TO GOOGLE SHEET
+// RESOLVE TARGET SHEET TAB & HEADER CHECK
 // ============================================================
 
-export async function appendOrderToGoogleSheet(
+async function resolveOrdersSheetTab(token: string, spreadsheetId: string): Promise<string> {
+  const metaRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+      spreadsheetId
+    )}?fields=sheets(properties(sheetId,title))`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  if (!metaRes.ok) {
+    const errText = await metaRes.text();
+    throw new Error(parseGoogleApiError(metaRes.status, errText));
+  }
+
+  const meta = await metaRes.json();
+  const existingSheets = meta.sheets || [];
+  const ordersSheet = existingSheets.find(
+    (s: any) => s.properties?.title?.toLowerCase() === 'orders'
+  );
+
+  if (ordersSheet?.properties?.title) {
+    return ordersSheet.properties.title;
+  }
+  if (existingSheets.length > 0 && existingSheets[0]?.properties?.title) {
+    return existingSheets[0].properties.title;
+  }
+  return 'Orders';
+}
+
+async function ensureSheetHeaders(
   token: string,
   spreadsheetId: string,
-  order: OrderDetails
-): Promise<{ success: boolean; error?: string }> {
-  const itemsSummary = order.items
-    .map((item) => `${item.menuItem.name} x${item.quantity}`)
-    .join(', ');
+  tabTitle: string
+): Promise<void> {
+  const checkRange = `${quoteSheetTab(tabTitle)}!A1:B1`;
+  const checkRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+      spreadsheetId
+    )}/values/${encodeURIComponent(checkRange)}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  let needsHeaders = false;
+  if (checkRes.ok) {
+    const data = await checkRes.json();
+    if (!data.values || data.values.length === 0 || !data.values[0]?.[0]) {
+      needsHeaders = true;
+    }
+  }
+
+  if (needsHeaders) {
+    const headerRange = `${quoteSheetTab(tabTitle)}!A1:L1`;
+    await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+        spreadsheetId
+      )}/values/${encodeURIComponent(headerRange)}?valueInputOption=USER_ENTERED`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ values: [ORDER_SHEET_HEADERS] }),
+      }
+    );
+  }
+}
+
+export async function readExistingOrderIdsFromSheet(
+  token: string,
+  spreadsheetId: string
+): Promise<Set<string>> {
+  const existingIds = new Set<string>();
+  try {
+    const tabTitle = await resolveOrdersSheetTab(token, spreadsheetId);
+    const range = `${quoteSheetTab(tabTitle)}!B2:B2000`;
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+        spreadsheetId
+      )}/values/${encodeURIComponent(range)}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+
+    if (res.ok) {
+      const data = await res.json();
+      (data.values || []).forEach((row: string[]) => {
+        if (row?.[0]) {
+          existingIds.add(String(row[0]).trim());
+        }
+      });
+    }
+  } catch (err) {
+    console.warn('Could not read existing order IDs from sheet:', err);
+  }
+  return existingIds;
+}
+
+// ============================================================
+// FORMAT & APPEND ORDER ROW TO GOOGLE SHEET
+// ============================================================
+
+function formatOrderRowValues(order: OrderDetails): Array<string | number> {
+  const itemsSummary =
+    order.items && order.items.length > 0
+      ? order.items.map((item) => `${item.menuItem.name} x${item.quantity}`).join(', ')
+      : 'Order Verification Test';
 
   const dateStr = new Date(order.timestamp).toLocaleString('en-IN', {
     timeZone: 'Asia/Kolkata',
     dateStyle: 'medium',
-    timeStyle: 'short'
+    timeStyle: 'short',
   });
 
-  const rowValues = [
+  return [
     dateStr,
     order.id,
     order.customerName || 'Guest Customer',
@@ -403,117 +526,125 @@ export async function appendOrderToGoogleSheet(
     order.deliveryFee,
     order.grandTotal,
     order.instructions || '',
-    (order.status || 'NEW').toUpperCase()
+    (order.status || 'NEW').toUpperCase(),
   ];
+}
 
-  const headers = [
-    'Timestamp',
-    'Order ID',
-    'Customer Name',
-    'Phone Number',
-    'Order Type',
-    'Address / Table',
-    'Items Summary',
-    'Subtotal (₹)',
-    'Delivery Fee (₹)',
-    'Grand Total (₹)',
-    'Kitchen Instructions',
-    'Status'
-  ];
-
-  // 1. Determine sheet tab title dynamically (supports 'Orders', 'Sheet1', or user-created tabs)
-  let targetSheetTitle = 'Orders';
-  let sheetNeedsHeader = false;
-
+export async function appendOrderToGoogleSheet(
+  token: string,
+  spreadsheetId: string,
+  order: OrderDetails
+): Promise<{ success: boolean; error?: string }> {
   try {
-    const metaRes = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets(properties(sheetId,title,gridProperties))`,
-      {
-        headers: { Authorization: `Bearer ${token}` }
-      }
-    );
+    const targetSheetTitle = await resolveOrdersSheetTab(token, spreadsheetId);
+    await ensureSheetHeaders(token, spreadsheetId, targetSheetTitle);
 
-    if (metaRes.ok) {
-      const meta = await metaRes.json();
-      const existingSheets = meta.sheets || [];
-      const ordersSheet = existingSheets.find(
-        (s: any) => s.properties?.title?.toLowerCase() === 'orders'
-      );
+    const rowValues = formatOrderRowValues(order);
+    const appendRange = `${quoteSheetTab(targetSheetTitle)}!A:L`;
+    const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+      spreadsheetId
+    )}/values/${encodeURIComponent(
+      appendRange
+    )}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
 
-      if (ordersSheet) {
-        targetSheetTitle = ordersSheet.properties.title;
-        if ((ordersSheet.properties?.gridProperties?.rowCount ?? 0) <= 1) {
-          sheetNeedsHeader = true;
-        }
-      } else if (existingSheets.length > 0) {
-        // Fallback to first tab in spreadsheet
-        targetSheetTitle = existingSheets[0].properties.title;
-        if ((existingSheets[0].properties?.gridProperties?.rowCount ?? 0) <= 1) {
-          sheetNeedsHeader = true;
-        }
-      }
-    }
-  } catch (metaErr) {
-    console.warn('Metadata inspection warning, defaulting to Orders:', metaErr);
-  }
-
-  // 2. Add header row if the sheet is newly created or empty
-  if (sheetNeedsHeader) {
-    try {
-      await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
-          targetSheetTitle
-        )}!A1:L1?valueInputOption=USER_ENTERED`,
-        {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ values: [headers] })
-        }
-      );
-    } catch {}
-  }
-
-  // 3. Append order row
-  const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
-    targetSheetTitle
-  )}!A:L:append?valueInputOption=USER_ENTERED`;
-
-  let response = await fetch(appendUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      values: [rowValues]
-    })
-  });
-
-  // Fallback without sheet prefix if range parsing error occurred
-  if (!response.ok) {
-    const genericAppendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/A:L:append?valueInputOption=USER_ENTERED`;
-    response = await fetch(genericAppendUrl, {
+    const response = await fetch(appendUrl, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        values: [rowValues]
-      })
+        values: [rowValues],
+      }),
     });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return { success: false, error: parseGoogleApiError(response.status, errText) };
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'Failed to append order to Google Sheet.',
+    };
+  }
+}
+
+export async function appendOrdersBatchToGoogleSheet(
+  token: string,
+  spreadsheetId: string,
+  ordersToSync: OrderDetails[]
+): Promise<{
+  success: boolean;
+  appendedIds: string[];
+  skippedCount: number;
+  error?: string;
+}> {
+  if (!ordersToSync.length) {
+    return { success: true, appendedIds: [], skippedCount: 0 };
   }
 
-  if (!response.ok) {
-    const errText = await response.text();
-    console.error('Error appending order to Google Sheet:', errText);
-    return { success: false, error: errText };
-  }
+  try {
+    const targetSheetTitle = await resolveOrdersSheetTab(token, spreadsheetId);
+    await ensureSheetHeaders(token, spreadsheetId, targetSheetTitle);
 
-  return { success: true };
+    const existingIds = await readExistingOrderIdsFromSheet(token, spreadsheetId);
+    const newOrders = ordersToSync.filter((o) => !existingIds.has(o.id.trim()));
+    const skippedCount = ordersToSync.length - newOrders.length;
+
+    if (newOrders.length === 0) {
+      return {
+        success: true,
+        appendedIds: [],
+        skippedCount,
+      };
+    }
+
+    // Oldest first so spreadsheet reads chronologically top-to-bottom
+    const chronological = [...newOrders].sort((a, b) => a.timestamp - b.timestamp);
+    const rows = chronological.map(formatOrderRowValues);
+
+    const appendRange = `${quoteSheetTab(targetSheetTitle)}!A:L`;
+    const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+      spreadsheetId
+    )}/values/${encodeURIComponent(
+      appendRange
+    )}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+
+    const response = await fetch(appendUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ values: rows }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return {
+        success: false,
+        appendedIds: [],
+        skippedCount,
+        error: parseGoogleApiError(response.status, errText),
+      };
+    }
+
+    return {
+      success: true,
+      appendedIds: chronological.map((o) => o.id),
+      skippedCount,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      appendedIds: [],
+      skippedCount: 0,
+      error: err?.message || 'Failed to sync orders batch to Google Sheet.',
+    };
+  }
 }
 
 // ============================================================
@@ -523,23 +654,59 @@ export async function appendOrderToGoogleSheet(
 export async function listGoogleDriveSpreadsheets(
   token: string
 ): Promise<Array<{ id: string; name: string; url: string; modifiedTime: string }>> {
-  const url = `https://www.googleapis.com/drive/v3/files?q=mimeType='application/vnd.google-apps.spreadsheet' and trashed=false&orderBy=modifiedTime desc&pageSize=15&fields=files(id,name,webViewLink,modifiedTime)`;
+  const params = new URLSearchParams({
+    q: "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false",
+    orderBy: 'modifiedTime desc',
+    pageSize: '20',
+    fields: 'files(id,name,webViewLink,modifiedTime)',
+  });
 
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` }
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
   });
 
   if (!res.ok) {
-    return [];
+    const errText = await res.text();
+    throw new Error(parseGoogleApiError(res.status, errText));
   }
 
   const data = await res.json();
-  return (data.files || []).map((f: { id: string; name: string; webViewLink?: string; modifiedTime?: string }) => ({
-    id: f.id,
-    name: f.name,
-    url: f.webViewLink || `https://docs.google.com/spreadsheets/d/${f.id}/edit`,
-    modifiedTime: f.modifiedTime ? new Date(f.modifiedTime).toLocaleDateString() : ''
-  }));
+  return (data.files || []).map(
+    (f: { id: string; name: string; webViewLink?: string; modifiedTime?: string }) => ({
+      id: f.id,
+      name: f.name,
+      url: f.webViewLink || `https://docs.google.com/spreadsheets/d/${f.id}/edit`,
+      modifiedTime: f.modifiedTime ? new Date(f.modifiedTime).toLocaleDateString() : '',
+    })
+  );
+}
+
+// ============================================================
+// EXCEL / CSV EXPORT HELPER
+// ============================================================
+
+export function exportOrdersToExcelCsv(orders: OrderDetails[]) {
+  const escapeCsvCell = (value: string | number) => {
+    const str = String(value ?? '');
+    if (/[",\n\r]/.test(str)) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
+  const rows = [ORDER_SHEET_HEADERS, ...orders.map(formatOrderRowValues)];
+  const csvContent =
+    '\uFEFF' + rows.map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `firey_treat_orders_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 // ============================================================
@@ -561,58 +728,14 @@ export const APPS_SCRIPT_MANIFEST_CODE = `{
 }`;
 
 export const APPS_SCRIPT_TEMPLATE_CODE = `/** @OnlyCurrentDoc */
-// ============================================================
 // FIREY TREAT RESTAURANT - GOOGLE APPS SCRIPT ORDERS SYNC WEB APP
-// 100% COMPATIBLE WITH GOOGLE ADVANCED PROTECTION PROGRAM
-// ============================================================
-//
-// HOW TO DEPLOY UNDER GOOGLE ADVANCED PROTECTION (NO ERRORS!):
-//
-// 1. Open your Google Sheet -> Click "Extensions" > "Apps Script".
-//
-// 2. RENAME PROJECT:
-//    - Click "Untitled project" at top-left and rename it to:
-//      "Firey Treat Orders Sync"
-//    - (Advanced Protection blocks apps with the default name "Untitled project").
-//
-// 3. DO NOT CHANGE GCP PROJECT:
-//    - Keep the Google Cloud Platform (GCP) Project on DEFAULT!
-//    - Do NOT enter any project number in Project Settings.
-//
-// 4. PASTE CODE:
-//    - Select all in Code.gs, delete it, and paste this entire file.
-//    - Notice line 1: /** @OnlyCurrentDoc */ is CRUCIAL. It restricts
-//      permissions strictly to this single spreadsheet so Google Advanced
-//      Protection approves it without Error 400 policy_enforced.
-//    - Click Save (💾).
-//
-// 5. DEPLOY AS WEB APP:
-//    - Click the blue "Deploy" button (top right) -> "New deployment".
-//      (NOTE: If you had a previous failed deployment, you MUST choose
-//       "New deployment" so Apps Script resets the authorization scopes).
-//    - Click the gear icon (⚙️) next to "Select type" -> select "Web app".
-//    - Description: "Firey Treat Orders Webhook"
-//    - Execute as: "Me"
-//    - Who has access: "Anyone"  <-- CRITICAL for orders to arrive 24/7!
-//    - Click "Deploy".
-//
-// 6. AUTHORIZE ACCESS:
-//    - Click "Authorize access" -> choose your Google Account.
-//    - Google will show: "Firey Treat Orders Sync wants to access your Google Account
-//      (See, edit, create, and delete only the specific Google Sheets spreadsheet you use this app in)".
-//    - Click "Advanced" -> click "Go to Firey Treat Orders Sync (unsafe)" -> click "Allow".
-//
-// 7. COPY WEB APP URL:
-//    - Copy the Web App URL (starts with https://script.google.com/macros/s/ and ends in /exec).
-//    - Paste it in Firey Treat Owner Admin Panel!
-// ============================================================
+// Deploy as Web App -> Execute as: Me -> Who has access: Anyone
 
 function doPost(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName("Orders") || ss.getActiveSheet();
-    
-    // Auto-create header row if sheet is brand new
+
     if (sheet.getLastRow() === 0) {
       sheet.appendRow([
         "Timestamp",
@@ -631,16 +754,14 @@ function doPost(e) {
       sheet.setFrozenRows(1);
       sheet.getRange(1, 1, 1, 12).setFontWeight("bold").setBackground("#FDE68A");
     }
-    
-    // Parse JSON payload
+
     var data = {};
     if (e && e.postData && e.postData.contents) {
       data = JSON.parse(e.postData.contents);
     } else if (e && e.parameter) {
       data = e.parameter;
     }
-    
-    // Append order record row
+
     sheet.appendRow([
       data.dateStr || new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
       data.id || "FT-" + Utilities.getUuid().substring(0, 6).toUpperCase(),
@@ -655,7 +776,7 @@ function doPost(e) {
       data.instructions || "",
       (data.status || "NEW").toUpperCase()
     ]);
-    
+
     return ContentService
       .createTextOutput(JSON.stringify({ status: "success", orderId: data.id }))
       .setMimeType(ContentService.MimeType.JSON);
@@ -666,11 +787,11 @@ function doPost(e) {
   }
 }
 
-function doGet(e) {
+function doGet() {
   return ContentService
-    .createTextOutput(JSON.stringify({ 
-      status: "ready", 
-      message: "Firey Treat Restaurant Orders Webhook is active and listening for live orders." 
+    .createTextOutput(JSON.stringify({
+      status: "ready",
+      message: "Firey Treat Restaurant Orders Webhook is active."
     }))
     .setMimeType(ContentService.MimeType.JSON);
 }
@@ -703,14 +824,15 @@ export async function sendOrderToAppsScript(
     return false;
   }
 
-  const itemsSummary = order.items
-    .map((item) => `${item.menuItem.name} x${item.quantity}`)
-    .join(', ');
+  const itemsSummary =
+    order.items && order.items.length > 0
+      ? order.items.map((item) => `${item.menuItem.name} x${item.quantity}`).join(', ')
+      : 'Order Verification Test';
 
   const dateStr = new Date(order.timestamp).toLocaleString('en-IN', {
     timeZone: 'Asia/Kolkata',
     dateStyle: 'medium',
-    timeStyle: 'short'
+    timeStyle: 'short',
   });
 
   const payload = {
@@ -730,18 +852,18 @@ export async function sendOrderToAppsScript(
     deliveryFee: order.deliveryFee,
     grandTotal: order.grandTotal,
     instructions: order.instructions || '',
-    status: (order.status || 'NEW').toUpperCase()
+    status: (order.status || 'NEW').toUpperCase(),
   };
 
   try {
-    // Note: mode 'no-cors' prevents browser blocking from Google 302 redirect responses
     await fetch(url, {
       method: 'POST',
       mode: 'no-cors',
+      keepalive: true,
       headers: {
-        'Content-Type': 'text/plain;charset=utf-8'
+        'Content-Type': 'text/plain;charset=utf-8',
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
     return true;
   } catch (err) {
@@ -757,7 +879,8 @@ export async function testAppsScriptConnection(
   if (!url || !url.startsWith('https://script.google.com/macros/s/')) {
     return {
       success: false,
-      message: 'Please enter a valid Google Apps Script Web App URL starting with "https://script.google.com/macros/s/..."'
+      message:
+        'Please enter a valid Google Apps Script Web App URL starting with "https://script.google.com/macros/s/..." and ending with "/exec".',
     };
   }
 
@@ -773,19 +896,26 @@ export async function testAppsScriptConnection(
     grandTotal: 100,
     instructions: 'Google Apps Script connection verification test',
     timestamp: Date.now(),
-    status: 'new'
+    status: 'new',
   };
 
   try {
-    await sendOrderToAppsScript(url, testOrder);
+    const sent = await sendOrderToAppsScript(url, testOrder);
+    if (!sent) {
+      return {
+        success: false,
+        message: 'Could not reach the Apps Script URL. Verify the Web App is deployed with access set to "Anyone".',
+      };
+    }
     return {
       success: true,
-      message: 'Test order transmitted to Google Apps Script! Check your Google Sheet to confirm the test row was appended.'
+      message:
+        'Test order sent to Google Apps Script! Open your Google Sheet to confirm the new test row appeared.',
     };
   } catch (err: any) {
     return {
       success: false,
-      message: err?.message || 'Failed to send test request to Google Apps Script.'
+      message: err?.message || 'Failed to send test request to Google Apps Script.',
     };
   }
 }
@@ -797,31 +927,64 @@ export async function testAppsScriptConnection(
 export async function pushOrderToAllGoogleChannels(
   order: OrderDetails,
   token?: string | null
-): Promise<{ appsScript: boolean; sheetsApi: boolean }> {
+): Promise<{
+  appsScript: boolean;
+  sheetsApi: boolean;
+  synced: boolean;
+  channel?: 'sheets_api' | 'apps_script' | 'both';
+  error?: string;
+}> {
   let appsScriptSuccess = false;
   let sheetsApiSuccess = false;
+  let lastError: string | undefined;
 
-  // 1. Google Apps Script Web App (24/7 direct sheet push)
+  // 1. Direct Google Sheets API via in-memory OAuth token
+  const effectiveToken = token || (await getAccessToken());
+  if (effectiveToken) {
+    try {
+      let activeSheet = getActiveSavedSpreadsheet();
+      if (!activeSheet?.id) {
+        activeSheet = await findOrCreateOrdersSpreadsheet(effectiveToken);
+      }
+      if (activeSheet?.id) {
+        const res = await appendOrderToGoogleSheet(effectiveToken, activeSheet.id, order);
+        sheetsApiSuccess = res.success;
+        if (!res.success && res.error) {
+          lastError = res.error;
+        }
+      }
+    } catch (e: any) {
+      console.error('Direct Google Sheet API push error:', e);
+      lastError = e?.message || 'Direct Google Sheets API error';
+    }
+  }
+
+  // 2. Google Apps Script Web App (24/7 direct sheet push even when owner is signed out)
   const scriptUrl = getAppsScriptUrl();
   if (scriptUrl) {
     try {
       appsScriptSuccess = await sendOrderToAppsScript(scriptUrl, order);
-    } catch (e) {
+    } catch (e: any) {
       console.error('Apps Script push error:', e);
+      if (!lastError) lastError = e?.message;
     }
   }
 
-  // 2. Direct Google Sheets API via OAuth token
-  const effectiveToken = token || (await getAccessToken());
-  const activeSheet = getActiveSavedSpreadsheet();
-  if (effectiveToken && activeSheet?.id) {
-    try {
-      const res = await appendOrderToGoogleSheet(effectiveToken, activeSheet.id, order);
-      sheetsApiSuccess = res.success;
-    } catch (e) {
-      console.error('Direct Google Sheet API push error:', e);
-    }
-  }
+  const synced = sheetsApiSuccess || appsScriptSuccess;
+  const channel: 'sheets_api' | 'apps_script' | 'both' | undefined =
+    sheetsApiSuccess && appsScriptSuccess
+      ? 'both'
+      : sheetsApiSuccess
+      ? 'sheets_api'
+      : appsScriptSuccess
+      ? 'apps_script'
+      : undefined;
 
-  return { appsScript: appsScriptSuccess, sheetsApi: sheetsApiSuccess };
+  return {
+    appsScript: appsScriptSuccess,
+    sheetsApi: sheetsApiSuccess,
+    synced,
+    channel,
+    error: synced ? undefined : lastError,
+  };
 }

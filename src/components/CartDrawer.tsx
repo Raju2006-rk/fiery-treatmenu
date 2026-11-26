@@ -55,6 +55,11 @@ interface CartDrawerProps {
   externalLocation?: DetectedLocationResult | null;
   onLocationDetected?: (result: DetectedLocationResult) => void;
   onOrderPlaced?: (order: OrderDetails) => void;
+  onOrderSyncResult?: (
+    orderId: string,
+    synced: boolean,
+    channel?: 'sheets_api' | 'apps_script' | 'both'
+  ) => void;
 }
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
@@ -69,8 +74,15 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   externalLocation,
   onLocationDetected,
   onOrderPlaced,
+  onOrderSyncResult,
 }) => {
   const [orderType, setOrderType] = useState<OrderType>(externalOrderType || 'delivery');
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+  const [lastOrderFeedback, setLastOrderFeedback] = useState<{
+    orderId: string;
+    synced: boolean;
+    whatsappUrl: string;
+  } | null>(null);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [tableNumber, setTableNumber] = useState('');
@@ -338,12 +350,14 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     return encodeURIComponent(msg);
   };
 
-  const handleWhatsAppSend = () => {
-    if (isDeliveryAbove10km) {
+  const handleWhatsAppSend = async () => {
+    if (isDeliveryAbove10km || isSubmittingOrder) {
       return;
     }
     const encoded = generateWhatsAppMessage();
     if (!encoded) return;
+
+    setIsSubmittingOrder(true);
 
     // Construct order details object for CMS and Google Sheets sync
     const newOrder: OrderDetails = {
@@ -368,17 +382,41 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       grandTotal,
       timestamp: Date.now(),
       status: 'new',
+      syncedToSheet: false,
     };
 
     onOrderPlaced?.(newOrder);
 
-    // Auto-save to Google Sheet & Google Apps Script Web App
-    pushOrderToAllGoogleChannels(newOrder).catch((e) => {
+    // Wait briefly for Google Sheet / Apps Script sync so the request completes before switching tabs
+    let synced = false;
+    let channel: 'sheets_api' | 'apps_script' | 'both' | undefined;
+    try {
+      const syncResult = await Promise.race([
+        pushOrderToAllGoogleChannels(newOrder),
+        new Promise<{ appsScript: boolean; sheetsApi: boolean; synced: boolean }>((resolve) =>
+          window.setTimeout(() => resolve({ appsScript: false, sheetsApi: false, synced: false }), 3500)
+        ),
+      ]);
+      synced = syncResult.synced;
+      channel = 'channel' in syncResult ? syncResult.channel : undefined;
+    } catch (e) {
       console.error('Google Sheet / Apps Script auto-sync failed:', e);
-    });
+    }
+
+    onOrderSyncResult?.(newOrder.id, synced, channel);
 
     const url = `https://wa.me/${RESTAURANT_INFO.whatsappNumber}?text=${encoded}`;
-    window.open(url, '_blank');
+    setLastOrderFeedback({ orderId: newOrder.id, synced, whatsappUrl: url });
+    setIsSubmittingOrder(false);
+
+    // Open WhatsApp using a link click (safer than window.open in sandboxed frames)
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
 
   return (
@@ -1161,21 +1199,55 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   </button>
                 </div>
               ) : (
-                <button
-                  id="btn-send-whatsapp-order"
-                  onClick={handleWhatsAppSend}
-                  className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-950/60 flex items-center justify-center gap-2 transition-all cursor-pointer"
-                >
-                  <MessageCircle className="w-5 h-5 fill-current" />
-                  {isOrderingForFamily ? (
-                    <span className="flex items-center gap-1.5">
-                      <Heart className="w-4 h-4 fill-current text-rose-300" />
-                      <span>Send Feast to Family via WhatsApp (₹{grandTotal})</span>
-                    </span>
-                  ) : (
-                    <span>Order via WhatsApp (₹{grandTotal})</span>
+                <div className="space-y-2">
+                  {lastOrderFeedback && (
+                    <div className="p-2.5 rounded-xl bg-emerald-950/70 border border-emerald-700/60 text-xs flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-emerald-200 min-w-0">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span className="truncate">
+                          Order <strong>{lastOrderFeedback.orderId}</strong>{' '}
+                          {lastOrderFeedback.synced
+                            ? 'recorded in Google Sheet!'
+                            : 'saved to Order Log!'}
+                        </span>
+                      </div>
+                      <a
+                        href={lastOrderFeedback.whatsappUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] shrink-0"
+                      >
+                        Open WhatsApp
+                      </a>
+                    </div>
                   )}
-                </button>
+
+                  <button
+                    id="btn-send-whatsapp-order"
+                    onClick={handleWhatsAppSend}
+                    disabled={isSubmittingOrder}
+                    className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-70 text-white font-bold text-sm shadow-lg shadow-emerald-950/60 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    {isSubmittingOrder ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span>Recording Order &amp; Opening WhatsApp...</span>
+                      </>
+                    ) : (
+                      <>
+                        <MessageCircle className="w-5 h-5 fill-current" />
+                        {isOrderingForFamily ? (
+                          <span className="flex items-center gap-1.5">
+                            <Heart className="w-4 h-4 fill-current text-rose-300" />
+                            <span>Send Feast to Family via WhatsApp (₹{grandTotal})</span>
+                          </span>
+                        ) : (
+                          <span>Order via WhatsApp (₹{grandTotal})</span>
+                        )}
+                      </>
+                    )}
+                  </button>
+                </div>
               )}
 
               <div className="flex gap-2">

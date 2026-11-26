@@ -201,6 +201,47 @@ export default function App() {
     });
   };
 
+  const handleOrderSyncResult = (
+    orderId: string,
+    synced: boolean,
+    channel?: 'sheets_api' | 'apps_script' | 'both'
+  ) => {
+    if (!synced) return;
+    setOrders((prev) => {
+      const updated = prev.map((ord) =>
+        ord.id === orderId
+          ? { ...ord, syncedToSheet: true, syncedAt: Date.now(), syncChannel: channel }
+          : ord
+      );
+      try {
+        localStorage.setItem('firey_treat_orders_v1', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Error saving synced order state:', e);
+      }
+      return updated;
+    });
+  };
+
+  const handleOrdersSynced = (
+    orderIds: string[],
+    channel: 'sheets_api' | 'apps_script' | 'both'
+  ) => {
+    const syncedSet = new Set(orderIds);
+    setOrders((prev) => {
+      const updated = prev.map((ord) =>
+        syncedSet.has(ord.id)
+          ? { ...ord, syncedToSheet: true, syncedAt: Date.now(), syncChannel: channel }
+          : ord
+      );
+      try {
+        localStorage.setItem('firey_treat_orders_v1', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Error saving batch synced order state:', e);
+      }
+      return updated;
+    });
+  };
+
   // Order Type & Auto-detected location state (for Order Status indicator & CartDrawer)
   const [orderType, setOrderType] = useState<OrderType>('delivery');
   const [detectedLocation, setDetectedLocation] = useState<DetectedLocationResult | null>(null);
@@ -655,6 +696,7 @@ export default function App() {
         externalLocation={detectedLocation}
         onLocationDetected={setDetectedLocation}
         onOrderPlaced={handleOrderPlaced}
+        onOrderSyncResult={handleOrderSyncResult}
       />
 
       <OwnerAuthModal
@@ -673,6 +715,7 @@ export default function App() {
         onResetMenu={handleResetMenu}
         orders={orders}
         onUpdateOrderStatus={handleUpdateOrderStatus}
+        onOrdersSynced={handleOrdersSynced}
       />
 
     </div>
