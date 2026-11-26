@@ -10,6 +10,7 @@ interface MenuCardProps {
   onAddToCart: (item: MenuItem) => void;
   onUpdateQuantity: (itemId: string, delta: number) => void;
   onOpen3DStudio?: (item: MenuItem) => void;
+  isHighlighted?: boolean;
 }
 
 export const MenuCard: React.FC<MenuCardProps> = ({
@@ -18,6 +19,7 @@ export const MenuCard: React.FC<MenuCardProps> = ({
   onAddToCart,
   onUpdateQuantity,
   onOpen3DStudio,
+  isHighlighted = false,
 }) => {
   const [tilt, setTilt] = useState<{ x: number; y: number; glare: { x: number; y: number; opacity: number } }>({
     x: 0,
@@ -54,10 +56,12 @@ export const MenuCard: React.FC<MenuCardProps> = ({
       onMouseLeave={handleMouseLeave}
       style={{
         transform: `perspective(1000px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
-        transition: tilt.x === 0 ? 'transform 0.4s ease-out, border-color 0.2s' : 'none'
+        transition: tilt.x === 0 ? 'transform 0.4s ease-out, border-color 0.2s, box-shadow 0.3s' : 'none'
       }}
-      className={`group relative rounded-2xl bg-neutral-900 border transition-all duration-300 flex flex-col justify-between overflow-hidden shadow-lg will-change-transform ${
-        !item.inStock
+      className={`group relative scroll-mt-36 rounded-2xl bg-neutral-900 border transition-all duration-300 flex flex-col justify-between overflow-hidden shadow-lg will-change-transform ${
+        isHighlighted
+          ? 'border-amber-400 ring-2 ring-amber-400/80 shadow-2xl shadow-amber-500/30'
+          : !item.inStock
           ? 'border-neutral-800/80 opacity-60'
           : 'border-neutral-800 hover:border-amber-500/50 hover:shadow-2xl hover:shadow-orange-950/30'
       }`}

@@ -8,10 +8,51 @@ import {
   X, 
   MessageCircle, 
   Lock,
-  ArrowRight
+  ArrowRight,
+  ChevronLeft,
+  ChevronRight,
+  Sparkles
 } from 'lucide-react';
 import { RESTAURANT_INFO } from '../data/menuData';
 import fireyTreatLogo from '../assets/images/firey_treat_logo.svg';
+
+const PROMO_ANNOUNCEMENTS = [
+  {
+    id: 'delivery',
+    badge: 'FREE DELIVERY',
+    text: 'Free Home Delivery below 500m & fast delivery up to 10 km across Pachikapalem',
+    cta: 'Check Distance',
+    targetId: 'location-section',
+  },
+  {
+    id: 'basmathi',
+    badge: '100% BASMATHI',
+    text: 'Every Fried Rice & Dum Biryani dish is cooked exclusively with long-grain Basmathi Rice',
+    cta: 'Explore Rice',
+    targetId: 'menu-section',
+  },
+  {
+    id: 'chicken',
+    badge: 'DAILY HIT',
+    text: 'Crispy Golden Fried Chicken Buckets starting at just ₹79 — Fresh Daily Fry!',
+    cta: 'Order Now',
+    targetId: 'menu-section',
+  },
+  {
+    id: 'catering',
+    badge: 'PARTY COMBOS',
+    text: 'Function & Birthday Party Dum Biryani catering combos available at special rates',
+    cta: 'View Offers',
+    targetId: 'offers-section',
+  },
+  {
+    id: 'value',
+    badge: 'VALUE BITES',
+    text: 'Egg Rolls ₹59 • Chicken Popcorn ₹80 • Chicken Dum Biryani ₹120 — Fresh & Hot!',
+    cta: 'See Menu',
+    targetId: 'menu-section',
+  },
+];
 
 interface NavbarProps {
   cartCount: number;
@@ -31,6 +72,9 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [promoIndex, setPromoIndex] = useState(0);
+  const [promoPaused, setPromoPaused] = useState(false);
+  const [showPromo, setShowPromo] = useState(true);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -39,6 +83,14 @@ export const Navbar: React.FC<NavbarProps> = ({
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  useEffect(() => {
+    if (!showPromo || promoPaused) return;
+    const timer = window.setInterval(() => {
+      setPromoIndex((prev) => (prev + 1) % PROMO_ANNOUNCEMENTS.length);
+    }, 4500);
+    return () => window.clearInterval(timer);
+  }, [showPromo, promoPaused]);
 
   const handleNavClick = (id: string) => {
     setMobileMenuOpen(false);
@@ -52,14 +104,80 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
   };
 
+  const activePromo = PROMO_ANNOUNCEMENTS[promoIndex];
+
   return (
     <header 
       className={`sticky top-0 z-40 transition-all duration-300 ${
         isScrolled 
           ? 'bg-neutral-950/95 backdrop-blur-md border-b border-neutral-800 shadow-xl' 
-          : 'bg-neutral-950/40 backdrop-blur-sm border-b border-white/5'
+          : 'bg-neutral-950/60 backdrop-blur-sm border-b border-white/5'
       }`}
     >
+      {/* Slim Full-Width Rotating Promotional Banner */}
+      {showPromo && (
+        <div
+          onMouseEnter={() => setPromoPaused(true)}
+          onMouseLeave={() => setPromoPaused(false)}
+          className="w-full bg-gradient-to-r from-red-900 via-amber-700 to-red-900 border-b border-amber-400/25 text-white"
+        >
+          <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 min-h-8.5 py-1.5 flex items-center justify-between gap-2 text-[11px] sm:text-xs">
+            <button
+              type="button"
+              onClick={() =>
+                setPromoIndex(
+                  (prev) => (prev - 1 + PROMO_ANNOUNCEMENTS.length) % PROMO_ANNOUNCEMENTS.length
+                )
+              }
+              className="hidden sm:inline-flex items-center justify-center w-5 h-5 rounded-full text-amber-200/80 hover:text-white hover:bg-black/20 transition-colors cursor-pointer shrink-0"
+              aria-label="Previous announcement"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              key={activePromo.id}
+              type="button"
+              onClick={() => handleNavClick(activePromo.targetId)}
+              className="flex-1 flex items-center justify-center gap-2 text-center truncate cursor-pointer group animate-in fade-in duration-300"
+            >
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-neutral-950/60 border border-amber-300/30 text-amber-300 font-extrabold text-[10px] tracking-wider uppercase shrink-0">
+                <Sparkles className="w-2.5 h-2.5" />
+                {activePromo.badge}
+              </span>
+              <span className="font-medium text-white/95 truncate">
+                {activePromo.text}
+              </span>
+              <span className="hidden md:inline-flex items-center gap-0.5 font-bold text-amber-200 group-hover:text-white underline underline-offset-2 shrink-0">
+                {activePromo.cta}
+                <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
+              </span>
+            </button>
+
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={() =>
+                  setPromoIndex((prev) => (prev + 1) % PROMO_ANNOUNCEMENTS.length)
+                }
+                className="hidden sm:inline-flex items-center justify-center w-5 h-5 rounded-full text-amber-200/80 hover:text-white hover:bg-black/20 transition-colors cursor-pointer"
+                aria-label="Next announcement"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowPromo(false)}
+                className="inline-flex items-center justify-center w-5 h-5 rounded-full text-amber-200/80 hover:text-white hover:bg-black/20 transition-colors cursor-pointer"
+                aria-label="Dismiss promotional banner"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-20">
           

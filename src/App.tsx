@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { MenuItem, CartItem, CategoryId, OrderType, OrderDetails } from './types';
-import { INITIAL_MENU_ITEMS, CATEGORIES, RESTAURANT_INFO } from './data/menuData';
+import { INITIAL_MENU_ITEMS, CATEGORIES, RESTAURANT_INFO, resolveImageUrl } from './data/menuData';
 import { DetectedLocationResult } from './utils/distance';
 import { initAuth } from './services/googleWorkspace';
 import { User } from 'firebase/auth';
 import { Navbar } from './components/Navbar';
-import { Hero } from './components/Hero';
+import HeroSection41, { type MenuData } from '@/components/ui/shadcn-studio-hero-section-41';
+import { FIREY_TREAT_HERO_NAV } from '@/components/ui/hero-section-41-demo';
 import { SignatureFavourites } from './components/SignatureFavourites';
 import { SpecialOffersSection } from './components/SpecialOffersSection';
 import { BasmatiHighlight } from './components/BasmatiHighlight';
@@ -109,6 +110,7 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<CategoryId>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [dietaryFilter, setDietaryFilter] = useState<'all' | 'veg' | 'non_veg' | 'egg'>('all');
+  const [highlightedDishId, setHighlightedDishId] = useState<string | null>(null);
 
   // Modals state
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -343,6 +345,44 @@ export default function App() {
     });
   }, [menuItems, selectedCategory, dietaryFilter, searchQuery]);
 
+  // Live hero showcase & side-scroll data synced with all menu items (including admin edits/additions)
+  const heroMenuData = useMemo<MenuData[]>(() => {
+    const categoryNameMap = new Map(CATEGORIES.map((c) => [c.id, c.shortName]));
+    return menuItems
+      .filter((item) => item.inStock)
+      .map((item) => ({
+        id: item.id,
+        itemId: item.id,
+        img: resolveImageUrl(item.image),
+        imgAlt: item.name,
+        dishTitle: item.name,
+        dishPrice: `₹${item.price}`,
+        categoryLabel: categoryNameMap.get(item.category),
+      }));
+  }, [menuItems]);
+
+  const handleJumpToMenuDish = (dish: MenuData) => {
+    const targetId = dish.itemId ?? String(dish.id);
+    setSearchQuery('');
+    setDietaryFilter('all');
+    setSelectedCategory('all');
+    setHighlightedDishId(targetId);
+
+    window.setTimeout(() => {
+      const cardEl = document.getElementById(`dish-card-${targetId}`);
+      if (cardEl) {
+        cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else {
+        const menuSection = document.getElementById('menu-section');
+        menuSection?.scrollIntoView({ behavior: 'smooth' });
+      }
+    }, 90);
+
+    window.setTimeout(() => {
+      setHighlightedDishId((prev) => (prev === targetId ? null : prev));
+    }, 3200);
+  };
+
   // Group items by category if 'all' is selected and no search
   const isGroupedView = selectedCategory === 'all' && !searchQuery && dietaryFilter === 'all';
 
@@ -368,14 +408,28 @@ export default function App() {
         activeCategory={selectedCategory}
       />
 
-      {/* Hero Section with 3D Chicken Video & Interactive Model */}
-      <Hero
-        onExploreMenu={() => {
+      {/* Hero Section with Live Synchronized Dish Showcase & Side-Scroll Strip */}
+      <HeroSection41
+        showHeader={false}
+        brandName="Firey Treat"
+        navigationData={FIREY_TREAT_HERO_NAV}
+        menudata={heroMenuData}
+        eyebrow="100% Basmathi Rice • Crispy Fried Chicken • Home Delivery"
+        heading="Taste the Crunch. Feel the Fire."
+        description="Welcome to Firey Treat Restaurant in Pachikapalem. From golden Fried Chicken and fiery Thunder Wings to aromatic Basmathi Rice, flaky Kathi Rolls, Burgers & Dum Biryani — crafted fresh every day."
+        primaryCtaLabel="Explore Full Menu"
+        secondaryCtaLabel="Book Table / Catering"
+        primaryCtaHref="#menu-section"
+        secondaryCtaHref="#location-section"
+        onDishClick={handleJumpToMenuDish}
+        onPrimaryCtaClick={() => {
           const menuSection = document.getElementById('menu-section');
           if (menuSection) menuSection.scrollIntoView({ behavior: 'smooth' });
         }}
-        onAddToCart={handleAddToCart}
-        onOpenCart={() => setIsCartOpen(true)}
+        onSecondaryCtaClick={() => {
+          const locationSection = document.getElementById('location-section');
+          if (locationSection) locationSection.scrollIntoView({ behavior: 'smooth' });
+        }}
       />
 
       {/* Signature Favourites - Premium Dish Showcase */}
@@ -396,14 +450,6 @@ export default function App() {
         cartItemIds={cartItemMap}
         onAddToCart={handleAddToCart}
         onSelectCategory={(catId) => setSelectedCategory(catId as CategoryId)}
-      />
-
-      {/* Special Offers & Verified Policies */}
-      <SpecialOffersSection
-        onOpenMenu={() => {
-          const menuSection = document.getElementById('menu-section');
-          if (menuSection) menuSection.scrollIntoView({ behavior: 'smooth' });
-        }}
       />
 
       {/* Sticky Menu Category Navigation & Search */}
@@ -516,6 +562,7 @@ export default function App() {
                         cartQuantity={cartItemMap[item.id] || 0}
                         onAddToCart={handleAddToCart}
                         onUpdateQuantity={handleUpdateQuantity}
+                        isHighlighted={highlightedDishId === item.id}
                       />
                     ))}
                   </div>
@@ -533,12 +580,21 @@ export default function App() {
                 cartQuantity={cartItemMap[item.id] || 0}
                 onAddToCart={handleAddToCart}
                 onUpdateQuantity={handleUpdateQuantity}
+                isHighlighted={highlightedDishId === item.id}
               />
             ))}
           </div>
         )}
 
       </main>
+
+      {/* Special Offers & Verified Policies */}
+      <SpecialOffersSection
+        onOpenMenu={() => {
+          const menuSection = document.getElementById('menu-section');
+          if (menuSection) menuSection.scrollIntoView({ behavior: 'smooth' });
+        }}
+      />
 
       {/* About Fiery Treat Restaurant Section */}
       <AboutSection />

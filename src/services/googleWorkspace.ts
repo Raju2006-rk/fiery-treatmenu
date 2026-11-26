@@ -44,12 +44,6 @@ const TOKEN_TTL_MS = 50 * 60 * 1000; // 50 minutes (Google tokens expire in 60m)
 export const SPREADSHEET_STORAGE_KEY = 'firey_treat_active_spreadsheet';
 export const APPS_SCRIPT_URL_KEY = 'firey_treat_apps_script_url';
 
-// Owner's Live Google Sheet & Google Apps Script Web App endpoints
-// Configured so ANY customer placing an order anywhere without login automatically stores in the owner Google Sheet!
-export const DEFAULT_SPREADSHEET_ID = '15fPggW_2-EWHwtKbH-HC7r81K_fDJE-LJ0o_Wx6YhTE';
-export const DEFAULT_SPREADSHEET_URL = 'https://docs.google.com/spreadsheets/d/15fPggW_2-EWHwtKbH-HC7r81K_fDJE-LJ0o_Wx6YhTE/edit';
-export const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxqMoZ-L8ImLFFdj39TRqJsRj5QWRuSdff9T-oZgS6DLfnACI0WIhSF7xhm0zLd2Sak/exec';
-
 let isSigningIn = false;
 let cachedAccessToken: string | null = null;
 
@@ -206,21 +200,14 @@ export const logout = async () => {
 // SPREADSHEET STORAGE & EXTRACTION
 // ============================================================
 
-export function getActiveSavedSpreadsheet(): SpreadsheetInfo {
+export function getActiveSavedSpreadsheet(): SpreadsheetInfo | null {
   try {
     const raw = localStorage.getItem(SPREADSHEET_STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && parsed.id) {
-        return parsed;
-      }
+      return JSON.parse(raw);
     }
   } catch {}
-  return {
-    id: DEFAULT_SPREADSHEET_ID,
-    name: SPREADSHEET_NAME,
-    url: DEFAULT_SPREADSHEET_URL
-  };
+  return null;
 }
 
 export function setActiveSavedSpreadsheet(sheet: SpreadsheetInfo | null) {
@@ -680,10 +667,6 @@ function doPost(e) {
 }
 
 function doGet(e) {
-  // If order data is sent via query parameters, save it as well!
-  if (e && e.parameter && (e.parameter.id || e.parameter.customerName)) {
-    return doPost(e);
-  }
   return ContentService
     .createTextOutput(JSON.stringify({ 
       status: "ready", 
@@ -695,12 +678,10 @@ function doGet(e) {
 
 export function getAppsScriptUrl(): string {
   try {
-    const custom = localStorage.getItem(APPS_SCRIPT_URL_KEY);
-    if (custom && custom.trim()) {
-      return custom.trim();
-    }
-  } catch {}
-  return DEFAULT_APPS_SCRIPT_URL;
+    return localStorage.getItem(APPS_SCRIPT_URL_KEY) || '';
+  } catch {
+    return '';
+  }
 }
 
 export function setAppsScriptUrl(url: string) {
@@ -719,7 +700,6 @@ export async function sendOrderToAppsScript(
 ): Promise<boolean> {
   const url = (scriptUrl || getAppsScriptUrl()).trim();
   if (!url || !url.startsWith('http')) {
-    console.warn('[Google Apps Script] Invalid webhook URL provided:', url);
     return false;
   }
 
@@ -755,18 +735,14 @@ export async function sendOrderToAppsScript(
 
   try {
     // Note: mode 'no-cors' prevents browser blocking from Google 302 redirect responses
-    // keepalive: true ensures delivery even if page unloads / opens WhatsApp
     await fetch(url, {
       method: 'POST',
       mode: 'no-cors',
-      cache: 'no-cache',
-      keepalive: true,
       headers: {
         'Content-Type': 'text/plain;charset=utf-8'
       },
       body: JSON.stringify(payload)
     });
-    console.log(`[Google Apps Script] Order ${order.id} transmitted to ${url}`);
     return true;
   } catch (err) {
     console.error('Failed to post order to Google Apps Script:', err);
